@@ -5,28 +5,33 @@
     <meta name="viewport" content="width=device-width,initial-scale=1.0" />
     <title>Matrix Nejma — Live Manager</title>
     <link
-      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <style>
       :root {
         --bg: #040810;
-        --bg2: #070d1a;
-        --bg3: #0b1220;
-        --panel: #0d1628;
-        --border: #1a2d4a;
-        --border2: #243d60;
+        --bg2: #060c1c;
+        --bg3: #091021;
+        --panel: rgba(13, 22, 40, 0.75);
+        --panel-hover: rgba(16, 28, 52, 0.85);
+        --border: rgba(26, 45, 74, 0.6);
+        --border-active: rgba(0, 229, 255, 0.4);
         --cyan: #00e5ff;
-        --cyan2: #00b8d4;
+        --cyan-dim: rgba(0, 229, 255, 0.15);
+        --cyan-glow: 0 0 30px rgba(0, 229, 255, 0.15);
         --green: #00e676;
+        --green-dim: rgba(0, 230, 118, 0.12);
         --red: #ff1744;
+        --red-dim: rgba(255, 23, 68, 0.12);
         --orange: #ff9100;
         --yellow: #ffd600;
         --text: #cdd9e8;
         --text2: #7a9bbf;
         --text3: #3d5a7a;
-        --glow: 0 0 20px rgba(0, 229, 255, 0.25);
-        --glow2: 0 0 40px rgba(0, 229, 255, 0.15);
+        --radius: 8px;
+        --radius-sm: 5px;
+        --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
       *,
@@ -45,8 +50,60 @@
         overflow-x: hidden;
       }
 
-      /* Scanline overlay */
-      body::before {
+      /* ── Animated background ── */
+      .bg-canvas {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .bg-canvas::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse 80% 60% at 50% -20%, rgba(0, 229, 255, 0.06) 0%, transparent 70%),
+                    radial-gradient(ellipse 60% 50% at 80% 100%, rgba(0, 230, 118, 0.04) 0%, transparent 60%),
+                    radial-gradient(ellipse 50% 40% at 20% 100%, rgba(0, 229, 255, 0.03) 0%, transparent 60%);
+      }
+      .bg-grid {
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(0, 229, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0, 229, 255, 0.03) 1px, transparent 1px);
+        background-size: 48px 48px;
+        mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, black 30%, transparent 70%);
+        -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, black 30%, transparent 70%);
+      }
+      .bg-lines {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+      .bg-lines span {
+        position: absolute;
+        width: 1px;
+        height: 100%;
+        background: linear-gradient(180deg, transparent, rgba(0, 229, 255, 0.06), transparent);
+        animation: float-line 8s ease-in-out infinite;
+      }
+      .bg-lines span:nth-child(1)  { left: 10%; animation-delay: 0s; }
+      .bg-lines span:nth-child(2)  { left: 25%; animation-delay: 2s; }
+      .bg-lines span:nth-child(3)  { left: 40%; animation-delay: 4s; }
+      .bg-lines span:nth-child(4)  { left: 55%; animation-delay: 1s; }
+      .bg-lines span:nth-child(5)  { left: 70%; animation-delay: 3s; }
+      .bg-lines span:nth-child(6)  { left: 85%; animation-delay: 5s; }
+      .bg-lines span:nth-child(7)  { left: 50%; animation-delay: 6s; }
+      .bg-lines span:nth-child(8)  { left: 35%; animation-delay: 7s; }
+
+      @keyframes float-line {
+        0%, 100% { opacity: 0; transform: scaleY(0.3); }
+        50% { opacity: 1; transform: scaleY(1); }
+      }
+
+      /* Scanline */
+      body::after {
         content: "";
         position: fixed;
         inset: 0;
@@ -54,87 +111,102 @@
           0deg,
           transparent,
           transparent 2px,
-          rgba(0, 0, 0, 0.03) 2px,
-          rgba(0, 0, 0, 0.03) 4px
+          rgba(0, 0, 0, 0.025) 2px,
+          rgba(0, 0, 0, 0.025) 4px
         );
         pointer-events: none;
-        z-index: 9999;
-      }
-
-      /* Dot grid */
-      body::after {
-        content: "";
-        position: fixed;
-        inset: 0;
-        background-image: radial-gradient(
-          circle,
-          rgba(0, 229, 255, 0.04) 1px,
-          transparent 1px
-        );
-        background-size: 28px 28px;
-        pointer-events: none;
-        z-index: 0;
+        z-index: 9998;
       }
 
       /* ── Header ── */
       header {
         position: relative;
         z-index: 10;
-        background: linear-gradient(
-          180deg,
-          rgba(0, 229, 255, 0.04) 0%,
-          transparent 100%
-        );
-        border-bottom: 1px solid var(--border2);
-        padding: 18px 32px;
+        background: linear-gradient(180deg, rgba(0, 229, 255, 0.05) 0%, transparent 100%);
+        border-bottom: 1px solid var(--border);
+        padding: 16px 32px;
         display: flex;
         align-items: center;
         justify-content: space-between;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+      }
+      header::after {
+        content: "";
+        position: absolute;
+        bottom: -1px;
+        left: 10%;
+        right: 10%;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+        opacity: 0.3;
       }
       .logo {
         font-family: "Orbitron", monospace;
-        font-size: 1.5rem;
+        font-size: 1.4rem;
         font-weight: 900;
-        color: var(--cyan);
-        text-shadow: 0 0 30px rgba(0, 229, 255, 0.6);
+        background: linear-gradient(135deg, var(--cyan), #4dd0e1);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
         letter-spacing: 4px;
         display: flex;
         align-items: center;
         gap: 12px;
       }
       .logo-bracket {
+        -webkit-text-fill-color: var(--text3);
         color: var(--text3);
         font-weight: 300;
       }
       .live-dot {
-        width: 9px;
-        height: 9px;
+        width: 8px;
+        height: 8px;
         border-radius: 50%;
+        background: var(--text3);
+        transition: all var(--transition);
+      }
+      .live-dot.active {
         background: var(--green);
-        box-shadow: 0 0 10px var(--green);
+        box-shadow: 0 0 12px var(--green);
         animation: pulse-dot 1.5s ease-in-out infinite;
       }
       @keyframes pulse-dot {
-        0%,
-        100% {
-          opacity: 1;
-          transform: scale(1);
-        }
-        50% {
-          opacity: 0.4;
-          transform: scale(0.7);
-        }
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.4; transform: scale(0.75); }
       }
       .header-right {
         display: flex;
         align-items: center;
         gap: 16px;
         font-family: "Share Tech Mono", monospace;
-        font-size: 0.72rem;
+        font-size: 0.7rem;
         color: var(--text3);
       }
+      .header-right .status-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 12px;
+        border-radius: 20px;
+        border: 1px solid var(--border);
+        font-size: 0.62rem;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        transition: all var(--transition);
+      }
+      .header-right .status-label.idle {
+        border-color: var(--text3);
+        color: var(--text3);
+      }
+      .header-right .status-label.running {
+        border-color: rgba(0, 230, 118, 0.4);
+        color: var(--green);
+        background: var(--green-dim);
+      }
       #global-clock {
-        color: var(--cyan2);
+        color: var(--cyan2, #00b8d4);
+        font-weight: 600;
       }
 
       /* ── Layout ── */
@@ -144,14 +216,27 @@
         display: grid;
         grid-template-columns: 1fr 380px;
         gap: 0;
-        min-height: calc(100vh - 66px);
+        min-height: calc(100vh - 61px);
       }
 
-      /* ── Left: streams panel ── */
+      /* ── Left panel ── */
       .streams-panel {
         padding: 28px 28px 28px 32px;
         border-right: 1px solid var(--border);
         overflow-y: auto;
+      }
+      .streams-panel::-webkit-scrollbar {
+        width: 4px;
+      }
+      .streams-panel::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .streams-panel::-webkit-scrollbar-thumb {
+        background: var(--text3);
+        border-radius: 2px;
+      }
+      .streams-panel::-webkit-scrollbar-thumb:hover {
+        background: var(--text2);
       }
 
       .section-header {
@@ -162,133 +247,138 @@
       }
       .section-title {
         font-family: "Orbitron", monospace;
-        font-size: 0.7rem;
+        font-size: 0.65rem;
         font-weight: 700;
         color: var(--text3);
         letter-spacing: 3px;
         text-transform: uppercase;
       }
-      .section-title span {
+      .section-title .accent {
         color: var(--cyan);
       }
 
       /* ── Stream Card ── */
       .stream-card {
+        position: relative;
         background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 6px;
-        margin-bottom: 16px;
+        border-radius: var(--radius);
+        margin-bottom: 14px;
         overflow: hidden;
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
         transition:
-          border-color 0.3s,
-          box-shadow 0.3s;
-        animation: card-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+          border-color var(--transition),
+          box-shadow var(--transition),
+          background var(--transition);
+        animation: card-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
       }
-      @keyframes card-in {
-        from {
-          opacity: 0;
-          transform: translateY(-12px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
+      .stream-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: var(--radius);
+        padding: 1px;
+        background: linear-gradient(135deg, rgba(0, 229, 255, 0.1), transparent 50%, rgba(0, 229, 255, 0.03));
+        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity var(--transition);
       }
       .stream-card:hover {
-        border-color: var(--border2);
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+        border-color: var(--border-active);
+        background: var(--panel-hover);
+        box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4), 0 0 20px rgba(0, 229, 255, 0.05);
+      }
+      .stream-card:hover::before {
+        opacity: 1;
+      }
+      @keyframes card-in {
+        from { opacity: 0; transform: translateY(-12px) scale(0.98); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
       }
       .stream-card.warn-token {
         border-color: rgba(255, 145, 0, 0.5);
-        box-shadow: 0 0 20px rgba(255, 145, 0, 0.1);
+        box-shadow: 0 0 25px rgba(255, 145, 0, 0.08);
+      }
+      .stream-card.warn-token::before {
+        background: linear-gradient(135deg, rgba(255, 145, 0, 0.15), transparent 50%);
+        opacity: 1;
       }
 
       .card-head {
         display: flex;
         align-items: center;
         gap: 10px;
-        padding: 12px 16px;
-        background: rgba(0, 0, 0, 0.25);
+        padding: 10px 14px;
+        background: rgba(0, 0, 0, 0.2);
         border-bottom: 1px solid var(--border);
         cursor: pointer;
         user-select: none;
+        transition: background var(--transition);
+      }
+      .card-head:hover {
+        background: rgba(0, 0, 0, 0.3);
       }
       .card-num {
         font-family: "Orbitron", monospace;
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         font-weight: 700;
         color: var(--text3);
-        background: rgba(0, 229, 255, 0.07);
-        border: 1px solid var(--border2);
-        border-radius: 3px;
+        background: var(--cyan-dim);
+        border: 1px solid rgba(0, 229, 255, 0.15);
+        border-radius: 4px;
         padding: 2px 7px;
-        min-width: 36px;
+        min-width: 34px;
         text-align: center;
+        line-height: 1.4;
       }
       .card-title-text {
         flex: 1;
         font-weight: 600;
-        font-size: 1rem;
+        font-size: 0.95rem;
         color: var(--text);
         font-family: "Share Tech Mono", monospace;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .card-title-text.placeholder {
         color: var(--text3);
         font-style: italic;
+        opacity: 0.6;
       }
 
       .status-badge {
         font-family: "Share Tech Mono", monospace;
-        font-size: 0.62rem;
+        font-size: 0.58rem;
         padding: 2px 8px;
         border-radius: 20px;
         border: 1px solid;
         text-transform: uppercase;
         letter-spacing: 1px;
+        white-space: nowrap;
+        flex-shrink: 0;
+        transition: all var(--transition);
       }
-      .status-badge.idle {
-        color: var(--text3);
-        border-color: var(--text3);
-      }
-      .status-badge.live {
-        color: var(--green);
-        border-color: var(--green);
-        background: rgba(0, 230, 118, 0.1);
-        animation: blink-badge 2s ease-in-out infinite;
-      }
-      .status-badge.starting {
-        color: var(--cyan);
-        border-color: var(--cyan);
-        background: rgba(0, 229, 255, 0.08);
-      }
-      .status-badge.rotating {
-        color: var(--yellow);
-        border-color: var(--yellow);
-        background: rgba(255, 214, 0, 0.08);
-      }
-      .status-badge.error {
-        color: var(--red);
-        border-color: var(--red);
-        background: rgba(255, 23, 68, 0.1);
-      }
-      .status-badge.stopped {
-        color: var(--text3);
-        border-color: var(--text3);
-      }
+      .status-badge.idle    { color: var(--text3);     border-color: var(--text3); }
+      .status-badge.live    { color: var(--green);     border-color: rgba(0,230,118,0.5); background: var(--green-dim); animation: blink-badge 2s ease-in-out infinite; }
+      .status-badge.starting{ color: var(--cyan);      border-color: rgba(0,229,255,0.4); background: var(--cyan-dim); }
+      .status-badge.rotating{ color: var(--yellow);    border-color: rgba(255,214,0,0.4); background: rgba(255,214,0,0.08); }
+      .status-badge.error   { color: var(--red);       border-color: rgba(255,23,68,0.5); background: var(--red-dim); }
+      .status-badge.stopped { color: var(--text3);     border-color: var(--text3); opacity: 0.5; }
       @keyframes blink-badge {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.5;
-        }
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
       }
 
       .card-toggle {
         color: var(--text3);
-        font-size: 0.8rem;
-        transition: transform 0.25s;
+        font-size: 0.7rem;
+        transition: transform 0.3s;
+        flex-shrink: 0;
       }
       .card-toggle.open {
         transform: rotate(180deg);
@@ -299,12 +389,16 @@
         border: none;
         cursor: pointer;
         color: var(--text3);
-        font-size: 0.85rem;
-        padding: 2px 4px;
-        transition: color 0.2s;
+        font-size: 0.8rem;
+        padding: 2px 5px;
+        border-radius: 3px;
+        transition: all var(--transition);
+        flex-shrink: 0;
+        line-height: 1;
       }
       .btn-remove-card:hover {
         color: var(--red);
+        background: var(--red-dim);
       }
 
       .card-body {
@@ -312,10 +406,10 @@
         display: grid;
         gap: 14px;
         overflow: hidden;
-        max-height: 600px;
+        max-height: 800px;
         transition:
           max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-          padding 0.35s;
+          padding 0.35s cubic-bezier(0.4, 0, 0.2, 1);
       }
       .card-body.collapsed {
         max-height: 0;
@@ -330,11 +424,20 @@
       }
       .field-label {
         font-family: "Orbitron", monospace;
-        font-size: 0.58rem;
+        font-size: 0.55rem;
         font-weight: 700;
         color: var(--text3);
         letter-spacing: 2px;
         text-transform: uppercase;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .field-label::before {
+        content: ">";
+        color: var(--cyan);
+        opacity: 0.4;
+        font-family: "Share Tech Mono", monospace;
       }
       .field-row {
         display: flex;
@@ -347,207 +450,250 @@
       input[type="url"],
       select {
         width: 100%;
-        background: var(--bg2);
+        background: rgba(4, 8, 16, 0.7);
         border: 1px solid var(--border);
-        border-radius: 4px;
+        border-radius: var(--radius-sm);
         color: var(--text);
         font-family: "Share Tech Mono", monospace;
-        font-size: 0.82rem;
+        font-size: 0.78rem;
         padding: 8px 12px;
         outline: none;
         transition:
-          border-color 0.2s,
-          box-shadow 0.2s;
+          border-color var(--transition),
+          box-shadow var(--transition),
+          background var(--transition);
         caret-color: var(--cyan);
+      }
+      input[type="text"]::placeholder,
+      input[type="password"]::placeholder,
+      input[type="url"]::placeholder {
+        color: var(--text3);
+        opacity: 0.5;
       }
       input[type="text"]:focus,
       input[type="password"]:focus,
       input[type="url"]:focus,
       select:focus {
-        border-color: var(--cyan2);
-        box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.1);
+        border-color: var(--cyan);
+        box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.08), 0 0 20px rgba(0, 229, 255, 0.05);
+        background: rgba(4, 8, 16, 0.9);
       }
       input.valid {
-        border-color: var(--green) !important;
+        border-color: rgba(0, 230, 118, 0.6) !important;
+        box-shadow: 0 0 0 2px rgba(0, 230, 118, 0.06) !important;
       }
       input.invalid {
-        border-color: var(--red) !important;
+        border-color: rgba(255, 23, 68, 0.6) !important;
+        box-shadow: 0 0 0 2px rgba(255, 23, 68, 0.06) !important;
       }
 
       .toggle-pw {
-        background: var(--bg2);
+        background: rgba(4, 8, 16, 0.7);
         border: 1px solid var(--border);
-        border-radius: 4px;
+        border-radius: var(--radius-sm);
         color: var(--text3);
         cursor: pointer;
         padding: 0 12px;
-        font-size: 0.75rem;
-        transition:
-          color 0.2s,
-          border-color 0.2s;
+        font-size: 0.65rem;
+        transition: all var(--transition);
         font-family: "Rajdhani", sans-serif;
         font-weight: 600;
         white-space: nowrap;
+        letter-spacing: 1px;
       }
       .toggle-pw:hover {
         color: var(--cyan);
-        border-color: var(--cyan2);
+        border-color: rgba(0, 229, 255, 0.4);
+        background: var(--cyan-dim);
       }
 
       .btn-check {
-        background: rgba(0, 229, 255, 0.08);
-        border: 1px solid var(--cyan2);
-        border-radius: 4px;
+        background: var(--cyan-dim);
+        border: 1px solid rgba(0, 229, 255, 0.25);
+        border-radius: var(--radius-sm);
         color: var(--cyan);
         cursor: pointer;
         padding: 0 14px;
         font-family: "Orbitron", monospace;
-        font-size: 0.6rem;
+        font-size: 0.55rem;
         font-weight: 700;
         letter-spacing: 1px;
         white-space: nowrap;
-        transition:
-          background 0.2s,
-          box-shadow 0.2s;
+        transition: all var(--transition);
+        position: relative;
+        overflow: hidden;
       }
       .btn-check:hover {
-        background: rgba(0, 229, 255, 0.16);
-        box-shadow: 0 0 12px rgba(0, 229, 255, 0.2);
+        background: rgba(0, 229, 255, 0.2);
+        box-shadow: 0 0 20px rgba(0, 229, 255, 0.15);
+        border-color: rgba(0, 229, 255, 0.5);
+      }
+      .btn-check:active {
+        transform: scale(0.96);
+      }
+      .btn-check:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
       }
 
       .token-info {
         font-family: "Share Tech Mono", monospace;
-        font-size: 0.7rem;
+        font-size: 0.65rem;
         padding: 6px 10px;
-        border-radius: 4px;
+        border-radius: var(--radius-sm);
         margin-top: 2px;
         display: none;
+        animation: fade-slide 0.25s ease;
       }
       .token-info.show {
         display: block;
       }
       .token-info.ok {
-        background: rgba(0, 230, 118, 0.08);
+        background: var(--green-dim);
         color: var(--green);
         border: 1px solid rgba(0, 230, 118, 0.2);
       }
       .token-info.err {
-        background: rgba(255, 23, 68, 0.08);
+        background: var(--red-dim);
         color: var(--red);
         border: 1px solid rgba(255, 23, 68, 0.2);
       }
-
-      /* Token warning */
-      .token-warning {
-        display: flex;
-        align-items: flex-start;
-        gap: 10px;
-        background: rgba(255, 145, 0, 0.07);
-        border: 1px solid rgba(255, 145, 0, 0.35);
-        border-radius: 4px;
-        padding: 10px 12px;
-        font-size: 0.82rem;
-        color: var(--orange);
-        display: none;
-        margin-top: 2px;
-      }
-      .token-warning.show {
-        display: flex;
-      }
-      .token-warning strong {
-        font-weight: 700;
+      @keyframes fade-slide {
+        from { opacity: 0; transform: translateY(-4px); }
+        to { opacity: 1; transform: translateY(0); }
       }
 
-      /* Rotation warning */
+      .token-warning,
       .rotation-warning {
         display: flex;
         align-items: flex-start;
         gap: 10px;
-        background: rgba(255, 214, 0, 0.07);
-        border: 1px solid rgba(255, 214, 0, 0.3);
-        border-radius: 4px;
+        border-radius: var(--radius-sm);
         padding: 10px 12px;
-        font-size: 0.82rem;
-        color: var(--yellow);
+        font-size: 0.78rem;
         display: none;
-        margin-top: 2px;
+        animation: fade-slide 0.25s ease;
       }
+      .token-warning.show,
       .rotation-warning.show {
         display: flex;
       }
+      .token-warning {
+        background: rgba(255, 145, 0, 0.07);
+        border: 1px solid rgba(255, 145, 0, 0.3);
+        color: var(--orange);
+      }
+      .token-warning .warn-icon {
+        flex-shrink: 0;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: rgba(255, 145, 0, 0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: var(--orange);
+        margin-top: 1px;
+      }
+      .rotation-warning {
+        background: rgba(255, 214, 0, 0.06);
+        border: 1px solid rgba(255, 214, 0, 0.25);
+        color: var(--yellow);
+      }
+      .rotation-warning .rot-icon {
+        flex-shrink: 0;
+        font-size: 1rem;
+        opacity: 0.7;
+      }
 
-      /* Sources section */
       .sources-list {
         display: grid;
         gap: 8px;
       }
       .source-row {
         display: grid;
-        grid-template-columns: 1fr 2fr auto;
+        grid-template-columns: 1fr 2fr;
         gap: 8px;
         align-items: center;
         animation: card-in 0.25s ease both;
       }
-      .btn-remove-src {
-        background: none;
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        color: var(--text3);
-        cursor: pointer;
-        padding: 6px 10px;
-        font-size: 0.75rem;
-        transition: all 0.2s;
-      }
-      .btn-remove-src:hover {
-        border-color: var(--red);
-        color: var(--red);
-      }
 
       .btn-add-src {
-        background: rgba(0, 229, 255, 0.05);
-        border: 1px dashed var(--border2);
-        border-radius: 4px;
+        background: rgba(0, 229, 255, 0.04);
+        border: 1px dashed var(--border);
+        border-radius: var(--radius-sm);
         color: var(--text2);
         cursor: pointer;
         padding: 8px;
         font-family: "Rajdhani", sans-serif;
-        font-size: 0.8rem;
+        font-size: 0.78rem;
         font-weight: 600;
         width: 100%;
-        transition: all 0.2s;
-        margin-top: 4px;
+        transition: all var(--transition);
+        margin-top: 2px;
         letter-spacing: 1px;
       }
       .btn-add-src:hover {
-        border-color: var(--cyan2);
+        border-color: rgba(0, 229, 255, 0.3);
         color: var(--cyan);
-        background: rgba(0, 229, 255, 0.08);
+        background: var(--cyan-dim);
+      }
+
+      .btn-remove-src {
+        background: rgba(4, 8, 16, 0.5);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        color: var(--text3);
+        cursor: pointer;
+        padding: 6px 10px;
+        font-size: 0.7rem;
+        transition: all var(--transition);
+        font-family: "Rajdhani", sans-serif;
+        font-weight: 600;
+      }
+      .btn-remove-src:hover {
+        border-color: rgba(255, 23, 68, 0.4);
+        color: var(--red);
+        background: var(--red-dim);
       }
 
       /* Progress bar */
       .progress-wrap {
-        margin-top: 4px;
+        margin-top: 2px;
       }
       .progress-label {
         display: flex;
         justify-content: space-between;
         font-family: "Share Tech Mono", monospace;
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         color: var(--text3);
         margin-bottom: 4px;
       }
       .progress-bar {
         height: 3px;
-        background: var(--bg3);
+        background: rgba(11, 18, 32, 0.6);
         border-radius: 2px;
         overflow: hidden;
+        position: relative;
       }
       .progress-fill {
         height: 100%;
         border-radius: 2px;
         background: linear-gradient(90deg, var(--cyan), var(--green));
         transition: width 1s linear;
-        box-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+        box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+        position: relative;
+      }
+      .progress-fill::after {
+        content: "";
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 20px;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15));
       }
 
       /* ── Add stream button ── */
@@ -555,29 +701,37 @@
         width: 100%;
         padding: 14px;
         background: transparent;
-        border: 1px dashed var(--border2);
-        border-radius: 6px;
+        border: 1px dashed var(--border);
+        border-radius: var(--radius);
         cursor: pointer;
         font-family: "Orbitron", monospace;
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         font-weight: 700;
         letter-spacing: 2px;
         color: var(--text3);
-        transition: all 0.25s;
+        transition: all var(--transition);
+        position: relative;
+        overflow: hidden;
       }
       .btn-add-stream:hover {
-        border-color: var(--cyan);
+        border-color: rgba(0, 229, 255, 0.4);
         color: var(--cyan);
-        background: rgba(0, 229, 255, 0.04);
-        box-shadow: 0 0 20px rgba(0, 229, 255, 0.08);
+        background: var(--cyan-dim);
+        box-shadow: 0 0 30px rgba(0, 229, 255, 0.06);
+      }
+      .btn-add-stream:active {
+        transform: scale(0.98);
       }
 
       /* ── Right panel ── */
       .right-panel {
         display: flex;
         flex-direction: column;
-        background: var(--bg2);
+        background: rgba(6, 12, 28, 0.5);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
         overflow: hidden;
+        border-left: 1px solid var(--border);
       }
 
       .control-section {
@@ -590,58 +744,59 @@
         width: 100%;
         padding: 14px;
         border: none;
-        border-radius: 5px;
+        border-radius: var(--radius-sm);
         font-family: "Orbitron", monospace;
-        font-size: 0.72rem;
+        font-size: 0.68rem;
         font-weight: 700;
         letter-spacing: 2px;
         cursor: pointer;
-        transition: all 0.25s;
+        transition: all var(--transition);
         position: relative;
         overflow: hidden;
+        text-transform: uppercase;
       }
       .btn-main::before {
         content: "";
         position: absolute;
         inset: 0;
-        background: linear-gradient(
-          45deg,
-          transparent 30%,
-          rgba(255, 255, 255, 0.05) 50%,
-          transparent 70%
-        );
+        background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.04) 50%, transparent 70%);
         transform: translateX(-100%);
         transition: transform 0.6s;
       }
       .btn-main:hover::before {
         transform: translateX(100%);
       }
+      .btn-main:active {
+        transform: scale(0.97);
+      }
 
       .btn-start {
-        background: linear-gradient(135deg, #004d2a, #00301a);
+        background: linear-gradient(135deg, rgba(0, 77, 42, 0.8), rgba(0, 48, 26, 0.9));
         color: var(--green);
-        border: 1px solid rgba(0, 230, 118, 0.4);
-        box-shadow: 0 0 20px rgba(0, 230, 118, 0.1);
+        border: 1px solid rgba(0, 230, 118, 0.3);
+        box-shadow: 0 0 20px rgba(0, 230, 118, 0.06);
         margin-bottom: 10px;
       }
-      .btn-start:hover {
-        box-shadow: 0 0 30px rgba(0, 230, 118, 0.25);
-        border-color: var(--green);
+      .btn-start:hover:not(:disabled) {
+        box-shadow: 0 0 35px rgba(0, 230, 118, 0.15);
+        border-color: rgba(0, 230, 118, 0.6);
+        background: linear-gradient(135deg, rgba(0, 77, 42, 0.9), rgba(0, 48, 26, 1));
       }
       .btn-stop {
-        background: linear-gradient(135deg, #4d0012, #2d0009);
+        background: linear-gradient(135deg, rgba(77, 0, 18, 0.8), rgba(45, 0, 9, 0.9));
         color: var(--red);
-        border: 1px solid rgba(255, 23, 68, 0.4);
-        box-shadow: 0 0 20px rgba(255, 23, 68, 0.1);
+        border: 1px solid rgba(255, 23, 68, 0.3);
+        box-shadow: 0 0 20px rgba(255, 23, 68, 0.06);
       }
-      .btn-stop:hover {
-        box-shadow: 0 0 30px rgba(255, 23, 68, 0.25);
-        border-color: var(--red);
+      .btn-stop:hover:not(:disabled) {
+        box-shadow: 0 0 35px rgba(255, 23, 68, 0.15);
+        border-color: rgba(255, 23, 68, 0.6);
+        background: linear-gradient(135deg, rgba(77, 0, 18, 0.9), rgba(45, 0, 9, 1));
       }
       .btn-main:disabled {
-        opacity: 0.4;
+        opacity: 0.35;
         cursor: not-allowed;
-        box-shadow: none;
+        transform: none;
       }
 
       /* Stats grid */
@@ -652,14 +807,30 @@
         margin-top: 18px;
       }
       .stat-box {
-        background: var(--bg3);
+        background: rgba(11, 18, 32, 0.5);
         border: 1px solid var(--border);
-        border-radius: 5px;
+        border-radius: var(--radius-sm);
         padding: 10px 12px;
+        transition: border-color var(--transition);
+        position: relative;
+        overflow: hidden;
+      }
+      .stat-box::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, var(--cyan), transparent);
+        opacity: 0.3;
+      }
+      .stat-box:hover {
+        border-color: var(--border-active);
       }
       .stat-label {
         font-family: "Orbitron", monospace;
-        font-size: 0.55rem;
+        font-size: 0.5rem;
         color: var(--text3);
         letter-spacing: 1.5px;
         text-transform: uppercase;
@@ -667,15 +838,74 @@
       }
       .stat-value {
         font-family: "Share Tech Mono", monospace;
-        font-size: 1.1rem;
+        font-size: 1.15rem;
         color: var(--cyan);
         font-weight: 400;
+        transition: color var(--transition);
       }
-      .stat-value.green {
-        color: var(--green);
+      .stat-value.green { color: var(--green); }
+      .stat-value.red { color: var(--red); }
+
+      /* Settings */
+      .settings-section {
+        margin-top: 20px;
+        padding: 16px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        background: rgba(11, 18, 32, 0.3);
+        transition: border-color var(--transition);
       }
-      .stat-value.red {
-        color: var(--red);
+      .settings-section:hover {
+        border-color: var(--border-active);
+      }
+      .settings-section label {
+        font-size: 0.85rem;
+        color: var(--text);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+      }
+      .settings-section input[type="checkbox"] {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 36px;
+        height: 20px;
+        background: rgba(11, 18, 32, 0.8);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        cursor: pointer;
+        position: relative;
+        transition: all var(--transition);
+        flex-shrink: 0;
+      }
+      .settings-section input[type="checkbox"]::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--text3);
+        transition: all var(--transition);
+      }
+      .settings-section input[type="checkbox"]:checked {
+        background: rgba(0, 229, 255, 0.15);
+        border-color: rgba(0, 229, 255, 0.4);
+      }
+      .settings-section input[type="checkbox"]:checked::after {
+        left: 18px;
+        background: var(--cyan);
+        box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+      }
+      .settings-desc {
+        font-size: 0.72rem;
+        color: var(--text2);
+        line-height: 1.5;
+        margin-top: 8px;
+        padding-left: 44px;
       }
 
       /* ── Log console ── */
@@ -696,57 +926,43 @@
       .log-console {
         flex: 1;
         overflow-y: auto;
-        background: var(--bg);
+        background: rgba(4, 8, 16, 0.6);
         border: 1px solid var(--border);
-        border-radius: 5px;
+        border-radius: var(--radius-sm);
         padding: 10px 12px;
         font-family: "Share Tech Mono", monospace;
-        font-size: 0.68rem;
+        font-size: 0.65rem;
         line-height: 1.7;
         min-height: 0;
         max-height: 200px;
         resize: none;
+        transition: border-color var(--transition);
+      }
+      .log-console:focus-within {
+        border-color: rgba(0, 229, 255, 0.2);
       }
       .log-console::-webkit-scrollbar {
-        width: 6px;
-      }
-      .log-console::-webkit-scrollbar-track {
-        background: var(--bg2);
-        border-radius: 3px;
-      }
-      .log-console::-webkit-scrollbar-thumb {
-        background: var(--text3);
-        border-radius: 3px;
-      }
-      .log-console::-webkit-scrollbar-thumb:hover {
-        background: var(--text2);
+        width: 4px;
       }
       .log-console::-webkit-scrollbar-track {
         background: transparent;
       }
       .log-console::-webkit-scrollbar-thumb {
-        background: var(--border2);
+        background: var(--text3);
         border-radius: 2px;
+      }
+      .log-console::-webkit-scrollbar-thumb:hover {
+        background: var(--text2);
       }
 
       .log-line {
         display: block;
       }
-      .log-line.err {
-        color: var(--red);
-      }
-      .log-line.ok {
-        color: var(--green);
-      }
-      .log-line.rot {
-        color: var(--yellow);
-      }
-      .log-line.info {
-        color: var(--cyan2);
-      }
-      .log-line.dim {
-        color: var(--text3);
-      }
+      .log-line.err  { color: var(--red); }
+      .log-line.ok   { color: var(--green); }
+      .log-line.rot  { color: var(--yellow); }
+      .log-line.info { color: var(--cyan); }
+      .log-line.dim  { color: var(--text3); }
 
       .btn-clear-log {
         background: none;
@@ -754,15 +970,17 @@
         border-radius: 3px;
         color: var(--text3);
         cursor: pointer;
-        padding: 3px 10px;
+        padding: 4px 10px;
         font-family: "Orbitron", monospace;
-        font-size: 0.55rem;
+        font-size: 0.5rem;
         letter-spacing: 1px;
-        transition: all 0.2s;
+        transition: all var(--transition);
+        text-transform: uppercase;
       }
       .btn-clear-log:hover {
         color: var(--red);
-        border-color: var(--red);
+        border-color: rgba(255, 23, 68, 0.4);
+        background: var(--red-dim);
       }
 
       /* ── Toast ── */
@@ -777,124 +995,189 @@
       }
       .toast {
         background: var(--panel);
-        border-radius: 5px;
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border-radius: var(--radius-sm);
         padding: 12px 18px;
         font-family: "Share Tech Mono", monospace;
-        font-size: 0.78rem;
+        font-size: 0.75rem;
         min-width: 260px;
         border-left: 3px solid var(--cyan);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+        box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
         animation:
           toast-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both,
-          toast-out 0.3s 3s forwards;
+          toast-out 0.3s 3.2s forwards;
         pointer-events: none;
+        position: relative;
+        overflow: hidden;
       }
-      .toast.ok {
-        border-color: var(--green);
-        color: var(--green);
+      .toast::before {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, var(--cyan), transparent);
+        animation: toast-progress 3s linear forwards;
       }
-      .toast.err {
-        border-color: var(--red);
-        color: var(--red);
+      @keyframes toast-progress {
+        from { transform: scaleX(1); transform-origin: left; }
+        to { transform: scaleX(0); transform-origin: left; }
       }
-      .toast.warn {
-        border-color: var(--orange);
-        color: var(--orange);
-      }
+      .toast.ok    { border-color: var(--green); color: var(--green); }
+      .toast.ok::before { background: linear-gradient(90deg, var(--green), transparent); }
+      .toast.err   { border-color: var(--red); color: var(--red); }
+      .toast.err::before { background: linear-gradient(90deg, var(--red), transparent); }
+      .toast.warn  { border-color: var(--orange); color: var(--orange); }
+      .toast.warn::before { background: linear-gradient(90deg, var(--orange), transparent); }
       @keyframes toast-in {
-        from {
-          opacity: 0;
-          transform: translateX(30px);
-        }
-        to {
-          opacity: 1;
-          transform: translateX(0);
-        }
+        from { opacity: 0; transform: translateX(30px); }
+        to { opacity: 1; transform: translateX(0); }
       }
       @keyframes toast-out {
-        to {
-          opacity: 0;
-          transform: translateX(30px);
-        }
+        to { opacity: 0; transform: translateX(30px); }
       }
 
-      /* ── Live stream status rows ── */
+      /* ── Live status rows ── */
       .live-status-section {
         padding: 0 28px 0 32px;
         margin-bottom: 16px;
+        animation: fade-slide 0.3s ease;
       }
       .live-row {
         background: var(--panel);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
         border: 1px solid var(--border);
-        border-radius: 5px;
+        border-radius: var(--radius-sm);
         padding: 12px 14px;
         margin-bottom: 8px;
         display: grid;
-        grid-template-columns: 80px 1fr auto;
+        grid-template-columns: 100px 1fr auto;
         gap: 12px;
         align-items: center;
+        transition: border-color var(--transition), box-shadow var(--transition);
+        animation: card-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      .live-row:hover {
+        border-color: var(--border-active);
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
       }
       .live-row-label {
         font-family: "Orbitron", monospace;
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         color: var(--cyan);
         font-weight: 700;
+        letter-spacing: 1px;
       }
       .live-row-info {
-        font-size: 0.78rem;
+        font-size: 0.75rem;
         color: var(--text2);
       }
       .live-row-info span {
         color: var(--text);
       }
+      .live-row .status-badge {
+        margin-top: 4px;
+        display: inline-block;
+      }
 
-      /* Divider */
       .divider {
         border: none;
         border-top: 1px solid var(--border);
         margin: 6px 0 20px;
       }
 
-      /* Scrollbar for main panel */
-      .streams-panel::-webkit-scrollbar {
-        width: 5px;
+      /* ── Scrollbar main ── */
+      ::-webkit-scrollbar {
+        width: 4px;
       }
-      .streams-panel::-webkit-scrollbar-track {
+      ::-webkit-scrollbar-track {
         background: transparent;
       }
-      .streams-panel::-webkit-scrollbar-thumb {
-        background: var(--border2);
-        border-radius: 3px;
+      ::-webkit-scrollbar-thumb {
+        background: var(--text3);
+        border-radius: 2px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--text2);
+      }
+
+      /* ── Responsive ── */
+      @media (max-width: 1024px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .streams-panel {
+          border-right: none;
+          border-bottom: 1px solid var(--border);
+          padding: 20px;
+        }
+        .right-panel {
+          border-left: none;
+        }
+      }
+      @media (max-width: 640px) {
+        header {
+          padding: 12px 16px;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .logo { font-size: 1.1rem; }
+        .streams-panel { padding: 16px; }
+        .right-panel { padding: 0; }
+        .control-section { padding: 16px; }
+        .log-section { padding: 12px 16px; }
+        .live-row {
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+        .source-row {
+          grid-template-columns: 1fr;
+        }
+        .field-row {
+          flex-wrap: wrap;
+        }
+      }
+
+      /* ── Selection ── */
+      ::selection {
+        background: rgba(0, 229, 255, 0.2);
+        color: var(--cyan);
       }
     </style>
   </head>
   <body>
+    <!-- Animated background -->
+    <div class="bg-canvas">
+      <div class="bg-grid"></div>
+      <div class="bg-lines">
+        <span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+
     <!-- Header -->
     <header>
       <div class="logo">
-        <span class="logo-bracket">[</span>MATRIX NEJMA<span
-          class="logo-bracket"
-          >]</span
-        >
+        <span class="logo-bracket">[</span>MATRIX NEJMA<span class="logo-bracket">]</span>
         <div class="live-dot" id="global-dot"></div>
       </div>
       <div class="header-right">
-        DUAL LIVE MANAGER &nbsp;|&nbsp;
+        <span class="status-label idle" id="status-label-header">STANDBY</span>
         <span id="global-clock">--:--:--</span>
       </div>
     </header>
 
     <!-- Layout -->
     <div class="layout">
-      <!-- ── Left: streams config + live status ── -->
+      <!-- Left: streams config + live status -->
       <div class="streams-panel">
         <!-- Live status rows (populated dynamically) -->
-        <div
-          id="live-status-section"
-          style="display: none; margin-bottom: 20px"
-        >
+        <div id="live-status-section" style="display: none; margin-bottom: 20px">
           <div class="section-header">
-            <span class="section-title">ACTIVE <span>STREAMS</span></span>
+            <span class="section-title">ACTIVE <span class="accent">STREAMS</span></span>
             <span id="live-count-badge" class="status-badge live">0 LIVE</span>
           </div>
           <div id="live-rows"></div>
@@ -903,7 +1186,7 @@
 
         <!-- Stream config cards -->
         <div class="section-header">
-          <span class="section-title">STREAM <span>CONFIGURATION</span></span>
+          <span class="section-title">STREAM <span class="accent">CONFIGURATION</span></span>
           <span id="card-count" class="status-badge idle">0 SLOTS</span>
         </div>
 
@@ -914,26 +1197,17 @@
         </button>
       </div>
 
-      <!-- ── Right: controls + logs ── -->
+      <!-- Right: controls + logs -->
       <div class="right-panel">
         <div class="control-section">
           <div class="section-title" style="margin-bottom: 16px">
-            CONTROL <span style="color: var(--cyan)">CENTER</span>
+            CONTROL <span class="accent">CENTER</span>
           </div>
 
-          <button
-            class="btn-main btn-start"
-            id="btn-start"
-            onclick="handleStart()"
-          >
+          <button class="btn-main btn-start" id="btn-start" onclick="handleStart()">
             LAUNCH ALL STREAMS
           </button>
-          <button
-            class="btn-main btn-stop"
-            id="btn-stop"
-            onclick="handleStop()"
-            disabled
-          >
+          <button class="btn-main btn-stop" id="btn-stop" onclick="handleStop()" disabled>
             STOP ALL STREAMS
           </button>
 
@@ -956,46 +1230,21 @@
             </div>
           </div>
 
-          <!-- Settings Section -->
-          <div
-            class="settings-section"
-            style="
-              margin-top: 20px;
-              padding: 15px;
-              border: 1px solid var(--border);
-              border-radius: 5px;
-              background: var(--bg2);
-            "
-          >
-            <div
-              class="section-title"
-              style="margin-bottom: 12px; font-size: 0.9rem"
-            >
-              <span style="color: var(--cyan)">SETTINGS</span>
+          <!-- Settings -->
+          <div class="settings-section">
+            <div class="section-title" style="margin-bottom: 12px">
+              <span class="accent">SETTINGS</span>
             </div>
 
-            <div style="display: flex; align-items: center; margin-bottom: 8px">
-              <input
-                type="checkbox"
-                id="token-group-restart"
-                style="margin-right: 8px"
-              />
-              <label
-                for="token-group-restart"
-                style="font-size: 0.85rem; color: var(--text); cursor: pointer"
-              >
-                Token Group Restart
-              </label>
-            </div>
+            <label>
+              <input type="checkbox" id="token-group-restart" />
+              Token Group Restart
+            </label>
 
-            <div
-              style="font-size: 0.75rem; color: var(--text2); line-height: 1.4"
-            >
+            <div class="settings-desc">
               When enabled: If a stream crashes due to RTMPS connection issues,
-              all streams using the same Facebook token will be restarted
-              together after 45 seconds. This ensures simultaneous streaming for
-              token-shared live videos. Only affects FFmpeg processes - live
-              videos remain active.
+              all streams using the same Facebook token restart together after 45s.
+              This ensures simultaneous streaming for token-shared live videos.
             </div>
           </div>
         </div>
@@ -1003,15 +1252,11 @@
         <!-- Log console -->
         <div class="log-section">
           <div class="log-header">
-            <span class="section-title"
-              >SYSTEM <span style="color: var(--cyan)">LOGS</span></span
-            >
+            <span class="section-title">SYSTEM <span class="accent">LOGS</span></span>
             <button class="btn-clear-log" onclick="clearLogs()">CLEAR</button>
           </div>
           <div class="log-console" id="log-console">
-            <span class="log-line dim"
-              >[SYSTEM] Matrix Nejma Live Manager ready.</span
-            >
+            <span class="log-line dim">[SYSTEM] Matrix Nejma Live Manager ready.</span>
           </div>
         </div>
       </div>
@@ -1023,10 +1268,10 @@
       // ═══════════════════════════════════════════════════════
       // State
       // ═══════════════════════════════════════════════════════
-      let cards = []; // [{id, title, token, pageId, sources:[{label,url}], collapsed, tokenValid}]
+      let cards = [];
       let cardIdSeq = 0;
       let isRunning = false;
-      let tokenGroupRestartEnabled = false; // Setting for coordinated token-based restarts
+      let tokenGroupRestartEnabled = false;
 
       // ═══════════════════════════════════════════════════════
       // Clock
@@ -1055,8 +1300,6 @@
           }
         } catch (e) {}
         renderAll();
-
-        // Load settings
         tokenGroupRestartEnabled =
           localStorage.getItem("mnjm_token_group_restart") === "true";
         document.getElementById("token-group-restart").checked =
@@ -1094,7 +1337,6 @@
         });
         saveState();
         renderAll();
-        // Scroll to new card
         setTimeout(() => {
           const el = document.getElementById("card-" + id);
           if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1115,19 +1357,11 @@
         }
       }
 
-      // ═══════════════════════════════════════════════════════
-      // Source management
-      // ═══════════════════════════════════════════════════════
-      function addSource(cardId) {
-        // Single-source slots only. No additional source rows are supported.
-      }
-
-      function removeSource(cardId, idx) {
-        // Single-source slots only. Removal is disabled to preserve one source per slot.
-      }
+      function addSource(cardId) {}
+      function removeSource(cardId, idx) {}
 
       // ═══════════════════════════════════════════════════════
-      // Input handlers (live binding from DOM → state)
+      // Input handlers
       // ═══════════════════════════════════════════════════════
       function onTitleChange(cardId, val) {
         const c = cards.find((c) => c.id === cardId);
@@ -1166,7 +1400,7 @@
       }
 
       // ═══════════════════════════════════════════════════════
-      // Token — same-token count warning
+      // Token warnings
       // ═══════════════════════════════════════════════════════
       function countSameToken(token) {
         if (!token.trim()) return 0;
@@ -1183,11 +1417,12 @@
           if (count >= 3 && c.token.trim()) {
             warnEl.classList.add("show");
             el.classList.add("warn-token");
-            const isNewOne = c.id === focusCardId && count > 3;
-            warnEl.querySelector(".warn-text").innerHTML =
-              count > 3
-                ? "<strong>CRITICAL:</strong> This token already has 3 active slots. Adding more will cause Facebook API errors (hard limit: 3 live videos per token)."
-                : "<strong>WARNING:</strong> This token is used across 3 slots — the Facebook maximum. Adding another slot with this token will cause failures.";
+            const textEl = warnEl.querySelector(".warn-text");
+            if (count > 3) {
+              textEl.innerHTML = "<strong>CRITICAL:</strong> This token already has 3 active slots. Adding more will cause Facebook API errors (hard limit: 3 live videos per token).";
+            } else {
+              textEl.innerHTML = "<strong>WARNING:</strong> This token is used across 3 slots — the Facebook maximum. Adding another slot with this token will cause failures.";
+            }
           } else {
             warnEl.classList.remove("show");
             el.classList.remove("warn-token");
@@ -1282,7 +1517,6 @@
       }
 
       function getCardStatus(label) {
-        // Check against last fetched server status
         const s = lastServerStatus.streams || {};
         for (const key in s) {
           if (s[key].label === label) return s[key];
@@ -1306,7 +1540,6 @@
         const existing = document.getElementById("card-" + card.id);
         const html = buildCardHTML(card);
         if (existing) {
-          // Replace preserving focus
           const focused = document.activeElement;
           const focusId = focused ? focused.id : null;
           const selStart =
@@ -1359,42 +1592,41 @@
         const showWarn = warnCount >= 3 && card.token.trim();
         const warnMsg =
           warnCount > 3
-            ? "CRITICAL: This token already has 3 active slots. Adding more will cause Facebook API errors (hard limit: 3 live videos per token)."
-            : "WARNING: This token is used across 3 slots — the Facebook maximum. Adding another slot with this token will cause failures.";
+            ? "CRITICAL: This token already has 3 active slots. Adding more will cause Facebook API errors."
+            : "WARNING: This token is used across 3 slots — the Facebook maximum. Adding another slot will cause failures.";
 
         const src = card.sources[0] || { label: "", url: "" };
         const sourcesHTML = `
-    <div class="source-row">
-      <input type="text" placeholder="Label" value="${escHtml(src.label)}"
-        id="src-label-${card.id}-0"
-        oninput="onSourceLabelChange(${card.id},0,this.value)"/>
-      <input type="url" placeholder="Stream URL (HLS, RTSP, HTTP, or 'test')" value="${escHtml(src.url)}"
-        id="src-url-${card.id}-0"
-        oninput="onSourceUrlChange(${card.id},0,this.value)"/>
-    </div>
-  `;
+          <div class="source-row">
+            <input type="text" placeholder="Label" value="${escHtml(src.label)}"
+              id="src-label-${card.id}-0"
+              oninput="onSourceLabelChange(${card.id},0,this.value)"/>
+            <input type="url" placeholder="Stream URL (HLS, RTSP, HTTP, or 'test')" value="${escHtml(src.url)}"
+              id="src-url-${card.id}-0"
+              oninput="onSourceUrlChange(${card.id},0,this.value)"/>
+          </div>
+        `;
 
         const progress = srvStatus
           ? (() => {
               const pct = Math.min(100, (srvStatus.elapsed_secs / 14400) * 100);
               const rem = secs2hms(srvStatus.slot_remaining);
               return `
-      <div class="progress-wrap">
-        <div class="progress-label">
-          <span>Slot progress</span>
-          <span>${rem} remaining</span>
-        </div>
-        <div class="progress-bar">
-          <div class="progress-fill" style="width:${pct.toFixed(1)}%"></div>
-        </div>
-      </div>`;
+                <div class="progress-wrap">
+                  <div class="progress-label">
+                    <span>Slot progress</span>
+                    <span>${rem} remaining</span>
+                  </div>
+                  <div class="progress-bar">
+                    <div class="progress-fill" style="width:${pct.toFixed(1)}%"></div>
+                  </div>
+                </div>`;
             })()
           : "";
 
         const cardWarnClass = showWarn ? "warn-token" : "";
         const collapseClass = card.collapsed ? "collapsed" : "";
         const toggleClass = card.collapsed ? "" : "open";
-
         const rotWarnShow = isRunning && !srvStatus ? "show" : "";
 
         return `
@@ -1404,12 +1636,11 @@
     <span class="card-title-text ${titleClass}">${escHtml(titleDisplay)}</span>
     ${statusBadge}
     <button class="btn-remove-card" title="Remove slot"
-      onclick="event.stopPropagation(); removeCard(${card.id})">X</button>
-    <span class="card-toggle ${toggleClass}">&#9660;</span>
+      onclick="event.stopPropagation(); removeCard(${card.id})">✕</button>
+    <span class="card-toggle ${toggleClass}">▾</span>
   </div>
   <div class="card-body ${collapseClass}">
 
-    <!-- Title -->
     <div class="field-group">
       <div class="field-label">Stream Title</div>
       <input type="text" placeholder="e.g. My Live Channel" value="${escHtml(card.title)}"
@@ -1417,7 +1648,6 @@
         oninput="onTitleChange(${card.id},this.value)"/>
     </div>
 
-    <!-- Token -->
     <div class="field-group">
       <div class="field-label">Facebook Access Token</div>
       <div class="field-row">
@@ -1429,12 +1659,11 @@
       </div>
       ${tokenInfoShow}
       <div class="token-warning ${showWarn ? "show" : ""}" style="margin-top:6px;">
-        <span style="font-size:1rem;flex-shrink:0;">!</span>
+        <div class="warn-icon">!</div>
         <span class="warn-text">${showWarn ? warnMsg : ""}</span>
       </div>
     </div>
 
-    <!-- Source -->
     <div class="field-group">
       <div class="field-label">Source</div>
       <div class="sources-list" id="sources-${card.id}">
@@ -1442,10 +1671,9 @@
       </div>
     </div>
 
-    <!-- Rotation warning (when server is running but this slot hasn't started) -->
     <div class="rotation-warning ${rotWarnShow}">
-      <span style="font-size:1rem;flex-shrink:0;">~</span>
-      <span>Server is already running. This new slot will NOT start immediately — it will be queued and activated only after the current streams complete their 4-hour rotation. All streams always start at the same time.</span>
+      <span class="rot-icon">~</span>
+      <span>Server is already running. This new slot will NOT start immediately — it will be queued and activated only after the current streams complete their 4-hour rotation.</span>
     </div>
 
     ${progress}
@@ -1491,82 +1719,71 @@
       function updateFromServerStatus(data) {
         isRunning = data.running;
 
-        // Buttons
         document.getElementById("btn-start").disabled = isRunning;
         document.getElementById("btn-stop").disabled = !isRunning;
 
-        // Global dot
-        document.getElementById("global-dot").style.background = isRunning
-          ? "var(--green)"
-          : "var(--text3)";
-        document.getElementById("global-dot").style.boxShadow = isRunning
-          ? "0 0 10px var(--green)"
-          : "none";
+        const dot = document.getElementById("global-dot");
+        const statusLabel = document.getElementById("status-label-header");
+        if (isRunning) {
+          dot.classList.add("active");
+          statusLabel.className = "status-label running";
+          statusLabel.textContent = "● RUNNING";
+        } else {
+          dot.classList.remove("active");
+          statusLabel.className = "status-label idle";
+          statusLabel.textContent = "STANDBY";
+        }
 
-        // Stats
         const streams = Object.values(data.streams || {});
         const liveCount = streams.filter((s) => s.status === "live").length;
         const errCount = streams.filter((s) => s.status === "error").length;
-        const rotations = streams.reduce(
-          (sum, s) => sum + (s.rotation_n || 0),
-          0,
-        );
+        const rotations = streams.reduce((sum, s) => sum + (s.rotation_n || 0), 0);
         document.getElementById("stat-live").textContent = liveCount;
         document.getElementById("stat-errors").textContent = errCount;
         document.getElementById("stat-rotations").textContent = rotations;
+        document.getElementById("live-count-badge").textContent = liveCount + " LIVE";
 
-        // Live count badge
-        document.getElementById("live-count-badge").textContent =
-          liveCount + " LIVE";
-
-        // Active streams section
         const liveSection = document.getElementById("live-status-section");
         const liveRows = document.getElementById("live-rows");
         if (streams.length > 0) {
           liveSection.style.display = "block";
           liveRows.innerHTML = streams
             .map((s) => {
-              const pct = Math.min(100, (s.elapsed_secs / 14400) * 100).toFixed(
-                1,
-              );
+              const pct = Math.min(100, (s.elapsed_secs / 14400) * 100).toFixed(1);
               const rem = secs2hms(s.slot_remaining || 0);
               return `
-        <div class="live-row">
-          <div>
-            <div class="live-row-label">${escHtml(s.label)}</div>
-            <span class="status-badge ${s.status}" style="margin-top:4px;display:inline-block;">${s.status.toUpperCase()}</span>
-          </div>
-          <div>
-            <div class="live-row-info">Source: <span>${escHtml(s.source_label || s.source || "-")}</span></div>
-            ${s.pending_source ? `<div class="live-row-info" style="color:var(--yellow)">Queued: <span>${escHtml(s.pending_source)}</span></div>` : ""}
-            ${s.error ? `<div class="live-row-info" style="color:var(--red)">Error: <span>${escHtml(s.error)}</span></div>` : ""}
-            <div class="progress-wrap" style="margin-top:6px;">
-              <div class="progress-label">
-                <span>Rotation #${s.rotation_n}</span>
-                <span>${rem} left</span>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-fill" style="width:${pct}%"></div>
-              </div>
-            </div>
-          </div>
-          <div style="font-family:'Share Tech Mono',monospace;font-size:0.7rem;color:var(--text3);text-align:right;">
-            <div>${secs2hms(s.elapsed_secs || 0)}</div>
-            <div style="font-size:0.6rem;margin-top:2px;">elapsed</div>
-          </div>
-        </div>`;
+                <div class="live-row">
+                  <div>
+                    <div class="live-row-label">${escHtml(s.label)}</div>
+                    <span class="status-badge ${s.status}" style="margin-top:4px;display:inline-block;">${s.status.toUpperCase()}</span>
+                  </div>
+                  <div>
+                    <div class="live-row-info">Source: <span>${escHtml(s.source_label || s.source || "-")}</span></div>
+                    ${s.pending_source ? `<div class="live-row-info" style="color:var(--yellow)">Queued: <span>${escHtml(s.pending_source)}</span></div>` : ""}
+                    ${s.error ? `<div class="live-row-info" style="color:var(--red)">Error: <span>${escHtml(s.error)}</span></div>` : ""}
+                    <div class="progress-wrap" style="margin-top:6px;">
+                      <div class="progress-label">
+                        <span>Rotation #${s.rotation_n}</span>
+                        <span>${rem} left</span>
+                      </div>
+                      <div class="progress-bar">
+                        <div class="progress-fill" style="width:${pct}%"></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style="font-family:'Share Tech Mono',monospace;font-size:0.68rem;color:var(--text3);text-align:right;">
+                    <div>${secs2hms(s.elapsed_secs || 0)}</div>
+                    <div style="font-size:0.55rem;margin-top:2px;">elapsed</div>
+                  </div>
+                </div>`;
             })
             .join("");
         } else {
           liveSection.style.display = "none";
         }
 
-        // Update logs
-        if (data.logs) {
-          updateLogs(data.logs);
-        }
+        if (data.logs) updateLogs(data.logs);
 
-        // Refresh card status badges
         cards.forEach((c) => {
           const badgeEl = document.querySelector(`#card-${c.id} .status-badge`);
           const idx = cards.findIndex((cc) => cc.id === c.id);
@@ -1575,21 +1792,14 @@
             badgeEl.className = `status-badge ${srvS.status}`;
             badgeEl.textContent = srvS.status.toUpperCase();
           }
-          // Refresh progress bars
           if (srvS) {
-            const pctEl = document.querySelector(
-              `#card-${c.id} .progress-fill`,
-            );
+            const pctEl = document.querySelector(`#card-${c.id} .progress-fill`);
             if (pctEl) {
               const pct = Math.min(100, (srvS.elapsed_secs / 14400) * 100);
               pctEl.style.width = pct.toFixed(1) + "%";
             }
-            const remEl = document.querySelector(
-              `#card-${c.id} .progress-label span:last-child`,
-            );
-            if (remEl)
-              remEl.textContent =
-                secs2hms(srvS.slot_remaining || 0) + " remaining";
+            const remEl = document.querySelector(`#card-${c.id} .progress-label span:last-child`);
+            if (remEl) remEl.textContent = secs2hms(srvS.slot_remaining || 0) + " remaining";
           }
         });
       }
@@ -1608,13 +1818,9 @@
         console_.innerHTML = logs
           .map((line) => {
             const cls =
-              line.includes("error") ||
-              line.includes("Error") ||
-              line.includes("crash")
+              line.includes("error") || line.includes("Error") || line.includes("crash")
                 ? "err"
-                : line.includes("Live created") ||
-                    line.includes("valid") ||
-                    line.includes("Started")
+                : line.includes("Live created") || line.includes("valid") || line.includes("Started")
                   ? "ok"
                   : line.includes("Rotation") || line.includes("rotating")
                     ? "rot"
@@ -1642,7 +1848,6 @@
           return;
         }
 
-        // Validate — check for empty tokens
         const invalid = cards.filter(
           (c) => !c.token.trim() || c.sources.every((s) => !s.url.trim()),
         );
@@ -1651,7 +1856,6 @@
           return;
         }
 
-        // Check token limits
         const tokenGroups = {};
         cards.forEach((c) => {
           const t = c.token.trim();
@@ -1659,14 +1863,10 @@
         });
         const overLimit = Object.entries(tokenGroups).filter(([, v]) => v > 3);
         if (overLimit.length > 0) {
-          toast(
-            "One or more tokens exceed the 3-slot Facebook limit. Fix before starting.",
-            "err",
-          );
+          toast("One or more tokens exceed the 3-slot Facebook limit. Fix before starting.", "err");
           return;
         }
 
-        // Build payload with one token/source pair per card.
         const payload = {
           cards: cards.map((c, i) => ({
             token: c.token.trim(),
@@ -1697,10 +1897,7 @@
 
           if (data.ok) {
             if (data.queued) {
-              toast(
-                "Sources queued — will apply at next 4h rotation. All streams sync at the same time.",
-                "warn",
-              );
+              toast("Sources queued — will apply at next 4h rotation. All streams sync at the same time.", "warn");
             } else {
               toast("All streams launched simultaneously!", "ok");
             }
@@ -1760,6 +1957,14 @@
           .replace(/>/g, "&gt;")
           .replace(/"/g, "&quot;");
       }
+
+      // ═══════════════════════════════════════════════════════
+      // Token group restart toggle
+      // ═══════════════════════════════════════════════════════
+      document.getElementById("token-group-restart").addEventListener("change", function() {
+        tokenGroupRestartEnabled = this.checked;
+        localStorage.setItem("mnjm_token_group_restart", tokenGroupRestartEnabled.toString());
+      });
 
       // ═══════════════════════════════════════════════════════
       // Boot

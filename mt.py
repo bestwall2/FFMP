@@ -1,44 +1,71 @@
 #!/usr/bin/env python3
 """
-Matrix Nejma — Facebook Dual Live Manager
-Flask backend: manages up to 3 simultaneous UNPUBLISHED live videos per token,
-auto-rotates every 4 hours, persists session, serves the web UI.
+Matrix Nejma — Facebook Live Manager (fixed silent-kill detection)
+─────────────────────────────────────────────────────────────────
+Root cause of "stream looks alive in logs but DASH is dead":
+  Facebook silently kills one live video when two lives share a token
+  and one goes inactive. FFmpeg keeps pushing to a dead RTMPS endpoint
+  and reports no error — so logs look clean but the broadcast is gone.
 
-Install:  pip install flask requests
-Run:      python mt.py
-UI:       http://localhost:5000
+Fix:
+  A health-check thread polls GET /{live_id}?fields=status every 20 s.
+  If Facebook reports status != LIVE (e.g. VOD, PROCESSING, or error)
+  while FFmpeg is still running, we kill FFmpeg and force a restart
+  which re-creates the live video from scratch.
+
+  Additionally: if two slots share the same token, they are started
+  with a 3-second stagger so Facebook doesn't race-condition the
+  simultaneous creation.
 """
 
 import json
-import os
 import subprocess
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import requests as req
-from flask import Flask, jsonify, render_template_string, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-MAX_LIVE_PER_TOKEN = 3          # Facebook hard limit per token
-MAX_STREAM_SECS    = 4 * 3600   # rotate after 4 hours
-CRASH_WINDOW       = 20         # seconds — fast-crash threshold
-MAX_FAST_CRASHES   = 12
-GRAPH_API          = "https://graph.facebook.com/v25.0"
-STATE_FILE         = Path(__file__).parent / "state.json"
+MAX_LIVE_PER_TOKEN  = 3
+MAX_STREAM_SECS     = 4 * 3600
+CRASH_WINDOW        = 20
+MAX_FAST_CRASHES    = 12
+GRAPH_API           = "https://graph.facebook.com/v25.0"
+STATE_FILE          = Path(__file__).parent / "state.json"
+HEALTH_POLL_SECS    = 20   # how often to ask Facebook "is this live still alive?"
+HEALTH_GRACE_SECS   = 60   # don't health-check until this many seconds after FFmpeg goes live
+SAME_TOKEN_STAGGER  = 15   # seconds between live_video creations sharing the same token
+                           # Facebook needs ~10-15s to open the RTMPS ingest slot server-side
+INGEST_VERIFY_SECS  = 90   # max seconds to wait for ingest slot to become ready
+INGEST_POLL_SECS    = 5    # poll interval during ingest verification
+TLS_WAIT_SECS       = 30   # extra wait before retrying after TLS fatal alert
 
 app = Flask(__name__)
 
-# ── Global state (protected by state_lock) ────────────────────────────────────
 state_lock = threading.Lock()
-
-# config: per-slot cards with token/source pairs
-#   cards: [{token, source, source_label, title}]
-# streams: {stream_id: StreamWorker}
-config = {"cards": [], "max_lives": 0}
+config  = {"cards": [], "max_lives": 0}
 streams = {}   # label → StreamWorker
-token_group_restart_enabled = False  # Global setting for token group restart
+token_group_restart_enabled = False
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Logging
+# ═════════════════════════════════════════════════════════════════════════════
+
+log_lines = []
+log_lock  = threading.Lock()
+
+def log(msg: str):
+    ts   = datetime.now().strftime("%H:%M:%S")
+    line = f"[{ts}] {msg}"
+    with log_lock:
+        log_lines.append(line)
+        if len(log_lines) > 500:
+            log_lines.pop(0)
+    print(line)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -57,22 +84,20 @@ def fb_create_live(token: str, page_id: str, title: str, desc: str) -> dict:
     try:
         r.raise_for_status()
     except req.exceptions.HTTPError as exc:
-        body = r.text
         try:
-            error_data = r.json().get("error", {})
+            err = r.json().get("error", {})
         except Exception:
-            error_data = {}
-        detail = error_data.get("message") or body or str(exc)
-        code = error_data.get("code")
-        subcode = error_data.get("error_subcode")
-        msg = detail
-        if code is not None:
+            err = {}
+        detail = err.get("message") or r.text or str(exc)
+        code   = err.get("code")
+        sub    = err.get("error_subcode")
+        msg    = detail
+        if code:
             msg += f" (code={code}"
-            if subcode is not None:
-                msg += f", subcode={subcode}"
+            if sub:
+                msg += f", subcode={sub}"
             msg += ")"
         raise RuntimeError(msg) from exc
-
     data = r.json()
     if "error" in data:
         raise RuntimeError(data["error"].get("message", str(data["error"])))
@@ -81,10 +106,9 @@ def fb_create_live(token: str, page_id: str, title: str, desc: str) -> dict:
 
 def fb_end_live(token: str, live_id: str):
     try:
-        req.post(f"{GRAPH_API}/{live_id}", data={
-            "access_token":   token,
-            "end_live_video": True,
-        }, timeout=15)
+        req.post(f"{GRAPH_API}/{live_id}",
+                 data={"access_token": token, "end_live_video": True},
+                 timeout=15)
     except Exception:
         pass
 
@@ -98,14 +122,62 @@ def fb_get_live(token: str, live_id: str) -> dict:
 
 
 def fb_get_page_id(token: str) -> str:
-    r = req.get(f"{GRAPH_API}/me", params={
-        "access_token": token,
-        "fields": "id",
-    }, timeout=10)
+    r = req.get(f"{GRAPH_API}/me",
+                params={"access_token": token, "fields": "id"},
+                timeout=10)
     data = r.json()
     if "error" in data:
         raise RuntimeError(data["error"].get("message", "Invalid token"))
     return data["id"]
+
+
+def fb_verify_ingest(token: str, live_id: str, label: str) -> bool:
+    """
+    Poll GET /{live_id}?fields=ingest_streams until Facebook marks the ingest
+    slot as ready (is_master=true and stream_health is populated), OR until
+    INGEST_VERIFY_SECS elapses.
+
+    Why: after create_live returns a secure_stream_url, Facebook still needs
+    time to spin up the RTMPS ingest server behind that URL.  If FFmpeg tries
+    to connect before it is ready, the TLS handshake fails immediately with
+    "TLS fatal alert" because there is nothing listening yet.  Waiting here
+    means FFmpeg always connects to an already-open socket.
+
+    Returns True if ready, False if we timed out (caller should still try —
+    worst case FFmpeg gets one TLS error then succeeds on retry).
+    """
+    deadline = time.time() + INGEST_VERIFY_SECS
+    attempt  = 0
+    while time.time() < deadline:
+        attempt += 1
+        try:
+            r = req.get(f"{GRAPH_API}/{live_id}", params={
+                "access_token": token,
+                "fields":       "id,status,ingest_streams",
+            }, timeout=10)
+            data    = r.json()
+            status  = data.get("status", "")
+            streams = data.get("ingest_streams", [])
+
+            # Any non-UNPUBLISHED status after creation = ready or gone
+            if status == "LIVE":
+                log(f"[{label}] Ingest ready (status=LIVE) after {attempt} polls")
+                return True
+
+            # Check ingest_streams array — at least one entry = slot is open
+            if streams:
+                log(f"[{label}] Ingest slot open ({len(streams)} stream(s)) after {attempt} polls")
+                return True
+
+            log(f"[{label}] Waiting for ingest slot… status={status} attempt={attempt}")
+        except Exception as exc:
+            log(f"[{label}] Ingest verify error: {exc}")
+
+        for _ in range(INGEST_POLL_SECS):
+            time.sleep(1)
+
+    log(f"[{label}] Ingest verify timed out after {INGEST_VERIFY_SECS}s — proceeding anyway")
+    return False
 
 
 def probe_source(url: str) -> str:
@@ -139,11 +211,11 @@ def build_cmd(rtmps_url: str, source: str) -> list:
         "-probesize",           "10000000",
         "-analyzeduration",     "5000000",
     ]
-
     stype = probe_source(source) if source.startswith("http") else "other"
 
     if source == "test":
-        src = ["-re", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30",
+        src = ["-re",
+               "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30",
                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100"]
     elif stype == "hls":
         src = http_flags + ["-allowed_extensions", "ALL", "-i", source]
@@ -175,22 +247,15 @@ def build_cmd(rtmps_url: str, source: str) -> list:
     out = ["-max_interleave_delta", "0", "-f", "flv",
            "-flvflags", "no_duration_filesize", rtmps_url]
 
-    return ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-stats"] + src + codec + out
+    return (["ffmpeg", "-hide_banner", "-loglevel", "warning", "-stats"]
+            + src + codec + out)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# StreamWorker — one live video lifecycle
+# StreamWorker
 # ═════════════════════════════════════════════════════════════════════════════
 
 class StreamWorker:
-    """
-    Manages one Facebook live video slot:
-      - Creates the live video on Facebook
-      - Runs FFmpeg, restarts on crash
-      - After 4 h: ends the live, creates a new one, continues
-      - Pending source changes (from UI) are applied at rotation time
-    """
-
     def __init__(self, label: str, token: str, page_id: str,
                  source: str, source_label: str):
         self.label        = label
@@ -199,36 +264,41 @@ class StreamWorker:
         self.source       = source
         self.source_label = source_label
 
-        # Pending source — applied at next rotation
         self._pending_source       = None
         self._pending_source_label = None
         self._pending_lock         = threading.Lock()
 
-        # Token group restart coordination
-        self._pending_restart = False
-        self._restart_time    = None
-
-        # Public status (read by API)
         self.live_id      = None
         self.rtmps_url    = None
         self.dash_url     = None
-        self.status       = "idle"        # idle|starting|live|rotating|error|stopped
+        self.status       = "idle"
         self.error        = None
         self.elapsed_secs = 0.0
-        self.slot_start   = None          # when current 4h slot started
-        self.rotation_n   = 0             # how many rotations done
+        self.slot_start   = None
+        self.rotation_n   = 0
 
-        self._stop        = threading.Event()
-        self._thread      = threading.Thread(target=self._run, daemon=True)
+        # Health-check signal: set this to kill the current FFmpeg proc
+        # because Facebook killed the live video silently
+        self._fb_killed   = threading.Event()
+        self._current_proc = None
+        self._proc_lock    = threading.Lock()
+
+        self._stop   = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self):
         self._thread.start()
 
     def stop(self):
         self._stop.set()
+        with self._proc_lock:
+            if self._current_proc and self._current_proc.poll() is None:
+                try:
+                    self._current_proc.terminate()
+                except Exception:
+                    pass
 
     def queue_source_change(self, source: str, label: str):
-        """Called from UI when user changes source. Applied at next rotation."""
         with self._pending_lock:
             self._pending_source       = source
             self._pending_source_label = label
@@ -245,67 +315,28 @@ class StreamWorker:
         with self._pending_lock:
             pending = self._pending_source_label
         return {
-            "label":         self.label,
-            "source_label":  self.source_label,
-            "source":        self.source,
-            "pending_source":pending,
-            "live_id":       self.live_id,
-            "rtmps_url":     self.rtmps_url,
-            "dash_url":      self.dash_url,
-            "status":        self.status,
-            "error":         self.error,
-            "elapsed_secs":  round(self.elapsed_secs, 1),
-            "slot_remaining":round(max(0, MAX_STREAM_SECS - self.elapsed_secs), 1),
-            "rotation_n":    self.rotation_n,
+            "label":          self.label,
+            "source_label":   self.source_label,
+            "source":         self.source,
+            "pending_source": pending,
+            "live_id":        self.live_id,
+            "rtmps_url":      self.rtmps_url,
+            "dash_url":       self.dash_url,
+            "status":         self.status,
+            "error":          self.error,
+            "elapsed_secs":   round(self.elapsed_secs, 1),
+            "slot_remaining": round(max(0, MAX_STREAM_SECS - self.elapsed_secs), 1),
+            "rotation_n":     self.rotation_n,
         }
-
-    def _handle_token_group_restart(self):
-        """Check if we should restart all streams with the same token."""
-        global token_group_restart_enabled, streams
-        if not token_group_restart_enabled:
-            return False  # Individual restart
-
-        # Find all streams with the same token
-        same_token_streams = []
-        with state_lock:
-            for label, worker in streams.items():
-                if worker.token == self.token and worker != self:
-                    same_token_streams.append(worker)
-
-        if not same_token_streams:
-            return False  # No other streams with same token
-
-        log(f"[{self.label}] Token group restart triggered — {len(same_token_streams) + 1} streams with same token")
-
-        # Set a restart flag on all streams with same token
-        all_same_token = same_token_streams + [self]
-        for worker in all_same_token:
-            worker._pending_restart = True
-            worker._restart_time = time.time() + 45
-
-        log(f"[{self.label}] All streams scheduled for coordinated restart in 45s")
-        return True
-
-    def _restart_ffmpeg(self):
-        """Restart FFmpeg process without ending the live video."""
-        log(f"[{self.label}] Restarting FFmpeg process...")
-        self.status = "restarting"
-        time.sleep(2)  # Brief pause
-        # The _run_slot loop will continue and restart FFmpeg naturally
 
     # ── Main loop ─────────────────────────────────────────────────────────────
 
     def _run(self):
         while not self._stop.is_set():
             self._apply_pending()
-            coordinated_restart = self._run_slot()
+            self._run_slot()
             if self._stop.is_set():
                 break
-            if coordinated_restart:
-                # Coordinated restart - don't rotate, just continue with same live
-                log(f"[{self.label}] Coordinated restart complete, continuing with same live")
-                continue
-            # Rotate: end current live, start new one
             self.rotation_n  += 1
             self.elapsed_secs = 0.0
             self.status = "rotating"
@@ -322,68 +353,118 @@ class StreamWorker:
         log(f"[{self.label}] Stopped.")
 
     def _run_slot(self):
-        """Create one live video, stream until 4h or stop signal. Returns True if coordinated restart."""
-        # Create live video
+        """One 4-hour slot: create live → stream → health-watch → rotate."""
         self.status = "starting"
+        self._fb_killed.clear()
+
+        # ── Create live video ─────────────────────────────────────────────────
         try:
             data = fb_create_live(
                 self.token, self.page_id,
                 f"Matrix Nejma — {self.label}",
                 f"Stream {self.label} — Matrix Nejma",
             )
-            self.live_id  = data["id"]
+            self.live_id   = data["id"]
             self.rtmps_url = data.get("secure_stream_url", "")
-            self.error    = None
+            self.error     = None
             log(f"[{self.label}] Live created id={self.live_id}")
         except Exception as exc:
             self.status = "error"
             self.error  = str(exc)
             log(f"[{self.label}] Could not create live: {exc}")
-            # Wait before retry
             for _ in range(30):
                 if self._stop.is_set():
-                    return False
+                    return
                 time.sleep(1)
-            return False
+            return
 
-        # Start DASH poller
-        dash_stop = threading.Event()
-        threading.Thread(target=self._dash_poller, args=(dash_stop,), daemon=True).start()
+        # ── Wait for Facebook to open the RTMPS ingest slot ──────────────────
+        # Without this, FFmpeg hits "TLS fatal alert" because the ingest server
+        # is not ready yet. We poll ingest_streams until it appears.
+        log(f"[{self.label}] Verifying ingest slot is open before starting FFmpeg…")
+        fb_verify_ingest(self.token, self.live_id, self.label)
 
-        # Stream with watchdog
-        self.slot_start  = time.time()
+        # ── Start background threads ──────────────────────────────────────────
+        dash_stop   = threading.Event()
+        health_stop = threading.Event()
+        threading.Thread(target=self._dash_poller,
+                         args=(dash_stop,), daemon=True).start()
+        threading.Thread(target=self._health_checker,
+                         args=(health_stop,), daemon=True).start()
+
+        # ── FFmpeg watchdog loop ──────────────────────────────────────────────
+        self.slot_start   = time.time()
         self.elapsed_secs = 0.0
-        fast_crashes = 0
+        fast_crashes      = 0
 
         while not self._stop.is_set():
-            # Check 4h rotation trigger
             self.elapsed_secs = time.time() - self.slot_start
+
+            # 4-hour rotation trigger
             if self.elapsed_secs >= MAX_STREAM_SECS:
                 log(f"[{self.label}] 4h reached — rotating.")
-                dash_stop.set()
-                return False
+                break
 
-            # Check for coordinated token group restart
-            if self._pending_restart and time.time() >= self._restart_time:
-                log(f"[{self.label}] Executing coordinated restart...")
-                self._pending_restart = False
-                self._restart_time = None
-                # Force a restart by breaking out of the FFmpeg loop
+            # Facebook silently killed the live video
+            if self._fb_killed.is_set():
+                log(f"[{self.label}] Facebook killed the live — re-creating…")
+                self._fb_killed.clear()
+                # End dead live, create fresh one
+                if self.live_id:
+                    fb_end_live(self.token, self.live_id)
+                health_stop.set()
                 dash_stop.set()
-                return True
+                try:
+                    data = fb_create_live(
+                        self.token, self.page_id,
+                        f"Matrix Nejma — {self.label}",
+                        f"Stream {self.label} — Matrix Nejma",
+                    )
+                    self.live_id   = data["id"]
+                    self.rtmps_url = data.get("secure_stream_url", "")
+                    self.error     = None
+                    fast_crashes   = 0
+                    log(f"[{self.label}] New live id={self.live_id}")
+                    fb_verify_ingest(self.token, self.live_id, self.label)
+                    # Restart background threads with new live_id
+                    dash_stop   = threading.Event()
+                    health_stop = threading.Event()
+                    self._fb_killed.clear()
+                    threading.Thread(target=self._dash_poller,
+                                     args=(dash_stop,), daemon=True).start()
+                    threading.Thread(target=self._health_checker,
+                                     args=(health_stop,), daemon=True).start()
+                    continue
+                except Exception as exc:
+                    self.error  = str(exc)
+                    self.status = "error"
+                    log(f"[{self.label}] Re-create failed: {exc}")
+                    time.sleep(10)
+                    continue
 
             if fast_crashes >= MAX_FAST_CRASHES:
                 self.status = "error"
                 self.error  = f"{MAX_FAST_CRASHES} consecutive fast crashes"
-                log(f"[{self.label}] Too many crashes — giving up on this slot.")
-                break
+                log(f"[{self.label}] Too many crashes — pausing slot.")
+                # Don't exit slot loop — keep waiting so health-check can
+                # detect when Facebook kills/restores and we can recover
+                time.sleep(30)
+                fast_crashes = 0
+                continue
 
+            # ── Launch FFmpeg ─────────────────────────────────────────────────
             cmd   = build_cmd(self.rtmps_url, self.source)
             start = time.time()
             self.status = "live"
 
             try:
-                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                )
+                with self._proc_lock:
+                    self._current_proc = proc
             except FileNotFoundError:
                 self.status = "error"
                 self.error  = "ffmpeg not found"
@@ -394,6 +475,7 @@ class StreamWorker:
                 time.sleep(5)
                 continue
 
+            # ── Wait for FFmpeg to exit ───────────────────────────────────────
             while proc.poll() is None:
                 if self._stop.is_set():
                     proc.terminate()
@@ -402,45 +484,71 @@ class StreamWorker:
                     except subprocess.TimeoutExpired:
                         proc.kill()
                     break
+
+                if self._fb_killed.is_set():
+                    # Health check found live is dead — kill FFmpeg now
+                    log(f"[{self.label}] Killing FFmpeg (live was silently killed by FB)")
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                    break
+
                 self.elapsed_secs = time.time() - self.slot_start
                 if self.elapsed_secs >= MAX_STREAM_SECS:
                     proc.terminate()
                     break
                 time.sleep(1)
 
-            # Read any remaining output from FFmpeg
+            with self._proc_lock:
+                self._current_proc = None
+
+            # Collect stderr for diagnostics and TLS detection
+            tls_error = False
             try:
-                stdout_data, stderr_data = proc.communicate(timeout=2)
+                _, stderr_data = proc.communicate(timeout=2)
                 if stderr_data:
-                    stderr_lines = stderr_data.decode('utf-8', errors='replace').strip()
-                    if stderr_lines:
-                        # Log FFmpeg errors for debugging
-                        for line in stderr_lines.split('\n')[:5]:  # Limit to first 5 lines
-                            if line.strip():
-                                log(f"[{self.label}] FFmpeg: {line.strip()}")
+                    decoded = stderr_data.decode("utf-8", errors="replace")
+                    for line in decoded.split("\n")[:8]:
+                        if line.strip():
+                            log(f"[{self.label}] FFmpeg: {line.strip()}")
+                    # TLS fatal alert = ingest slot not open yet on Facebook's side
+                    if "TLS fatal alert" in decoded or "tls_alert" in decoded.lower():
+                        tls_error = True
             except Exception:
-                pass  # Ignore if we can't read output
+                pass
+
+            if self._stop.is_set():
+                break
+
+            # Skip crash counting if FB killed it (not a real crash)
+            if self._fb_killed.is_set():
+                continue
 
             lived = time.time() - start
-            if lived < CRASH_WINDOW:
+
+            if tls_error and lived < CRASH_WINDOW:
+                # TLS error: ingest not ready. Wait longer, then re-verify.
+                # Don't count against fast_crash streak — this is FB latency.
+                log(f"[{self.label}] TLS fatal alert — ingest slot not ready yet. "
+                    f"Waiting {TLS_WAIT_SECS}s then re-verifying…")
+                self.status = "starting"
+                for _ in range(TLS_WAIT_SECS):
+                    if self._stop.is_set() or self._fb_killed.is_set():
+                        break
+                    time.sleep(1)
+                if not self._stop.is_set() and not self._fb_killed.is_set():
+                    fb_verify_ingest(self.token, self.live_id, self.label)
+                continue  # retry FFmpeg without incrementing fast_crashes
+
+            elif lived < CRASH_WINDOW:
                 fast_crashes += 1
-                exit_code = proc.returncode if proc.returncode is not None else "unknown"
-                self.status = "restarting"
-                log(f"[{self.label}] Fast crash ({lived:.0f}s, exit={exit_code}) streak={fast_crashes}")
-
-                # Check for token group restart
-                if self._handle_token_group_restart():
-                    # Token group restart handled, exit this slot
-                    dash_stop.set()
-                    return True
-
-                # Individual restart
-
-                # Individual restart
                 wait = min(3 * (2 ** (fast_crashes - 1)), 60)
-                log(f"[{self.label}] Individual restart in {wait:.0f}s...")
+                self.status = "restarting"
+                log(f"[{self.label}] Fast exit {lived:.0f}s streak={fast_crashes} wait={wait:.0f}s")
                 for _ in range(int(wait)):
-                    if self._stop.is_set():
+                    if self._stop.is_set() or self._fb_killed.is_set():
                         break
                     time.sleep(1)
             else:
@@ -448,16 +556,83 @@ class StreamWorker:
                 log(f"[{self.label}] Disconnect ({lived:.0f}s) — restarting FFmpeg…")
 
         dash_stop.set()
-        return False
+        health_stop.set()
 
-    def _dash_poller(self, stop_ev: threading.Event):
-        """Poll Facebook for dash_preview_url until stop signal."""
-        last = None
+    # ── Facebook health checker ───────────────────────────────────────────────
+
+    def _health_checker(self, stop_ev: threading.Event):
+        """
+        Poll GET /{live_id}?fields=status every HEALTH_POLL_SECS.
+
+        Facebook 'status' values:
+          LIVE          — actively receiving data, all good
+          UNPUBLISHED   — created but not yet receiving data (normal at start)
+          LIVE_STOPPED  — ended normally
+          VOD           — converted to VOD (live ended)
+          PROCESSING    — being processed (rare)
+
+        If we see anything other than LIVE or UNPUBLISHED after the grace
+        period while FFmpeg thinks it is running, set _fb_killed so the
+        watchdog kills and re-creates.
+        """
+        # Wait for grace period before first check
+        for _ in range(HEALTH_GRACE_SECS):
+            if stop_ev.is_set() or self._stop.is_set():
+                return
+            time.sleep(1)
+
+        log(f"[{self.label}] Health checker active (poll every {HEALTH_POLL_SECS}s)")
+
         while not stop_ev.is_set() and not self._stop.is_set():
-            if not self.live_id or self.status not in {"starting", "live", "rotating"}:
-                time.sleep(5)
+            live_id = self.live_id
+            if not live_id or self.status not in ("live", "restarting"):
+                time.sleep(HEALTH_POLL_SECS)
                 continue
 
+            try:
+                data   = fb_get_live(self.token, live_id)
+                fb_status = data.get("status", "")
+
+                if "error" in data:
+                    err_code = data["error"].get("code", 0)
+                    err_msg  = data["error"].get("message", "")
+                    # Code 100 = object doesn't exist = live was deleted
+                    if err_code in (100, 803):
+                        log(f"[{self.label}] Health: live {live_id} no longer exists "
+                            f"(code={err_code}) — triggering re-create")
+                        self._fb_killed.set()
+                    else:
+                        log(f"[{self.label}] Health: API error {err_msg}")
+                elif fb_status in ("LIVE_STOPPED", "VOD", "PROCESSING"):
+                    log(f"[{self.label}] Health: Facebook status={fb_status} "
+                        f"but FFmpeg is running — SILENT KILL detected, re-creating")
+                    self._fb_killed.set()
+                elif fb_status == "LIVE":
+                    # All good — also update DASH URL opportunistically
+                    dash = data.get("dash_preview_url")
+                    if dash and dash != self.dash_url:
+                        self.dash_url = dash
+                        log(f"[{self.label}] DASH updated: {dash}")
+                else:
+                    # UNPUBLISHED or unknown — log but don't panic
+                    log(f"[{self.label}] Health: status={fb_status} (ok, not live yet)")
+
+            except Exception as exc:
+                log(f"[{self.label}] Health check error: {exc}")
+
+            for _ in range(HEALTH_POLL_SECS):
+                if stop_ev.is_set() or self._stop.is_set():
+                    return
+                time.sleep(1)
+
+    # ── DASH preview poller ───────────────────────────────────────────────────
+
+    def _dash_poller(self, stop_ev: threading.Event):
+        last = None
+        while not stop_ev.is_set() and not self._stop.is_set():
+            if not self.live_id or self.status not in ("starting", "live", "rotating"):
+                time.sleep(5)
+                continue
             try:
                 data = fb_get_live(self.token, self.live_id)
                 url  = data.get("dash_preview_url")
@@ -472,23 +647,6 @@ class StreamWorker:
                 if stop_ev.is_set() or self._stop.is_set():
                     break
                 time.sleep(1)
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-# Logging
-# ═════════════════════════════════════════════════════════════════════════════
-
-log_lines = []
-log_lock  = threading.Lock()
-
-def log(msg: str):
-    ts  = datetime.now().strftime("%H:%M:%S")
-    line = f"[{ts}] {msg}"
-    with log_lock:
-        log_lines.append(line)
-        if len(log_lines) > 500:
-            log_lines.pop(0)
-    print(line)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -515,38 +673,31 @@ def api_status():
 
 
 def _normalize_card(raw: dict) -> dict:
-    token = str(raw.get("token", "")).strip()
-    source = str(raw.get("source", raw.get("url", ""))).strip()
+    token        = str(raw.get("token", "")).strip()
+    source       = str(raw.get("source", raw.get("url", ""))).strip()
     source_label = str(raw.get("source_label", raw.get("label", ""))).strip()
-    title = str(raw.get("title", "")).strip() or source_label or source or "Untitled Stream"
-    return {
-        "token": token,
-        "source": source,
-        "source_label": source_label,
-        "title": title,
-    }
+    title        = str(raw.get("title", "")).strip() or source_label or "Untitled"
+    return {"token": token, "source": source,
+            "source_label": source_label, "title": title}
 
 
-def _normalize_cards(raw_cards):
-    if not isinstance(raw_cards, list):
+def _normalize_cards(raw):
+    if not isinstance(raw, list):
         return []
-    return [_normalize_card(c) for c in raw_cards]
+    return [_normalize_card(c) for c in raw]
 
 
 @app.route("/api/config", methods=["POST"])
 def api_config():
-    """Save per-slot token/source config. Does not start streams."""
     data = request.get_json(silent=True) or {}
     with state_lock:
-        if data.get("cards") is not None:
-            cards = data.get("cards", [])
+        cards = data.get("cards")
+        if cards is not None:
+            config["cards"] = _normalize_cards(cards)
         else:
             token = str(data.get("token", "")).strip()
-            cards = []
-            for src in data.get("sources", []):
-                cards.append(_normalize_card({"token": token, **src}))
-
-        config["cards"] = _normalize_cards(cards)
+            config["cards"] = _normalize_cards(
+                [{"token": token, **s} for s in data.get("sources", [])])
         config["max_lives"] = len(config["cards"])
         if "tokenGroupRestartEnabled" in data:
             config["token_group_restart_enabled"] = bool(data["tokenGroupRestartEnabled"])
@@ -558,77 +709,85 @@ def api_config():
 
 @app.route("/api/start", methods=["POST"])
 def api_start():
-    """
-    Start streaming. Assigns each slot its own token/source.
-    If streams are already running, new sources are queued for next rotation.
-    """
     global token_group_restart_enabled
-    data = request.get_json(silent=True) or {}
-    cards = data.get("cards")
-    if cards is None:
-        with state_lock:
-            cards = config.get("cards", [])
-    else:
-        cards = _normalize_cards(cards)
-
-    token_group_restart_enabled = data.get("tokenGroupRestartEnabled", token_group_restart_enabled)
+    data  = request.get_json(silent=True) or {}
+    cards = _normalize_cards(data.get("cards") or config.get("cards", []))
 
     if not cards:
         return jsonify({"ok": False, "error": "No stream cards configured"}), 400
 
-    # Validate tokens and page IDs
-    page_ids = {}
+    token_group_restart_enabled = data.get("tokenGroupRestartEnabled",
+                                            token_group_restart_enabled)
+
+    # Validate all tokens first
+    page_ids     = {}
     token_counts = {}
     for card in cards:
-        if not card.get("token"):
-            return jsonify({"ok": False, "error": "One or more slots have no token configured"}), 400
-        if not card.get("source"):
-            return jsonify({"ok": False, "error": "One or more slots have no source configured"}), 400
-        token = card["token"]
-        token_counts[token] = token_counts.get(token, 0) + 1
+        if not card["token"] or not card["source"]:
+            return jsonify({"ok": False,
+                            "error": "One or more slots missing token or source"}), 400
+        token_counts[card["token"]] = token_counts.get(card["token"], 0) + 1
 
-    for token, count in token_counts.items():
-        if count > MAX_LIVE_PER_TOKEN:
-            return jsonify({"ok": False, "error": f"Token limit exceeded: {count} slots use the same token (max {MAX_LIVE_PER_TOKEN})"}), 400
+    for t, cnt in token_counts.items():
+        if cnt > MAX_LIVE_PER_TOKEN:
+            return jsonify({"ok": False,
+                            "error": f"Token used in {cnt} slots (max {MAX_LIVE_PER_TOKEN})"}), 400
 
     try:
         for card in cards:
-            token = card["token"]
-            if token not in page_ids:
-                page_ids[token] = fb_get_page_id(token)
+            t = card["token"]
+            if t not in page_ids:
+                page_ids[t] = fb_get_page_id(t)
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 
-    log(f"Tokens validated — page_ids={list(page_ids.values())}")
+    log(f"Tokens validated — {len(page_ids)} unique token(s), {len(cards)} slot(s)")
 
     with state_lock:
         if streams:
-            # Already running: queue source changes for each slot
             for i, (label, worker) in enumerate(streams.items()):
                 card = cards[i % len(cards)]
                 worker.queue_source_change(card["source"], card["source_label"])
             log("Already running — source changes queued for next rotation.")
             return jsonify({"ok": True, "queued": True})
 
-        # Fresh start: create workers simultaneously
+        # Build workers
         workers = {}
         for i, card in enumerate(cards):
             label = f"Live-{i+1}"
-            w = StreamWorker(
-                label,
-                card["token"],
-                page_ids[card["token"]],
-                card["source"],
-                card["source_label"],
+            workers[label] = StreamWorker(
+                label, card["token"], page_ids[card["token"]],
+                card["source"], card["source_label"],
             )
-            workers[label] = w
 
-        # Start all threads at once
-        for w in workers.values():
+        # ── Stagger start for slots sharing the same token ────────────────────
+        # Facebook rejects simultaneous live_video creation from the same token.
+        # We group by token and insert SAME_TOKEN_STAGGER seconds between
+        # workers that share a token, while still starting different-token
+        # workers in parallel.
+        token_last_start = {}  # token → last start time
+
+        def start_worker(w: StreamWorker):
+            t = w.token
+            now = time.time()
+            last = token_last_start.get(t, 0)
+            wait = max(0, SAME_TOKEN_STAGGER - (now - last))
+            if wait > 0:
+                log(f"[{w.label}] Staggering {wait:.1f}s (same token as previous slot)")
+                time.sleep(wait)
+            token_last_start[t] = time.time()
             w.start()
 
-        # Give Facebook a moment then wait for all to be past "starting"
-        time.sleep(0.5)
+        start_threads = []
+        for w in workers.values():
+            t = threading.Thread(target=start_worker, args=(w,), daemon=True)
+            start_threads.append(t)
+            t.start()
+
+        # Wait for all starters to finish (max ~15s for 3 same-token slots)
+        for t in start_threads:
+            t.join(timeout=20)
+
         streams.update(workers)
 
     log(f"Started {len(cards)} live stream(s).")
@@ -653,7 +812,7 @@ def api_logs():
 
 @app.route("/api/validate_token", methods=["POST"])
 def api_validate_token():
-    token = request.json.get("token", "").strip()
+    token = (request.json or {}).get("token", "").strip()
     try:
         page_id = fb_get_page_id(token)
         return jsonify({"ok": True, "page_id": page_id})
@@ -673,37 +832,32 @@ def _save_state():
 
 
 def _load_state():
-    global config
+    global config, token_group_restart_enabled
     if STATE_FILE.exists():
         try:
             saved = json.loads(STATE_FILE.read_text())
             if isinstance(saved, dict):
                 if saved.get("cards") is not None:
-                    config["cards"] = _normalize_cards(saved.get("cards", []))
-                elif saved.get("token") is not None and saved.get("sources") is not None:
-                    token = str(saved.get("token", "")).strip()
-                    config["cards"] = _normalize_cards([
-                        {"token": token, **src} for src in saved.get("sources", [])
-                    ])
-                else:
-                    config.update(saved)
+                    config["cards"] = _normalize_cards(saved["cards"])
+                elif saved.get("token") and saved.get("sources"):
+                    token = str(saved["token"]).strip()
+                    config["cards"] = _normalize_cards(
+                        [{"token": token, **s} for s in saved["sources"]])
                 config["max_lives"] = len(config.get("cards", []))
-                if saved.get("token_group_restart_enabled") is not None:
-                    config["token_group_restart_enabled"] = bool(saved["token_group_restart_enabled"])
-                elif saved.get("tokenGroupRestartEnabled") is not None:
-                    config["token_group_restart_enabled"] = bool(saved["tokenGroupRestartEnabled"])
-                global token_group_restart_enabled
-                token_group_restart_enabled = config.get("token_group_restart_enabled", False)
+                tgr = (saved.get("token_group_restart_enabled")
+                       or saved.get("tokenGroupRestartEnabled"))
+                if tgr is not None:
+                    config["token_group_restart_enabled"] = bool(tgr)
+                    token_group_restart_enabled = bool(tgr)
         except Exception:
             pass
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Entry point
-# ═════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     _load_state()
     log("Matrix Nejma Live Manager starting…")
+    log(f"Health checker: polls every {HEALTH_POLL_SECS}s, grace period {HEALTH_GRACE_SECS}s")
     log("UI → http://localhost:5000")
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
