@@ -1,0 +1,30 @@
+{
+  "cards": [
+    {
+      "token": "EAAKXMxkBFCIBRXl47iojETSEnOxxxKDoFyYXC1ATZAbkKSIncBWiBKnEMB0n7YM9VJLCuzxL2c9kqZAjCRo1H8U9ZC3PppP2ZBVxZBQCUVirKiquNV3ZCtJ078eZATZB060ZBtBZBJVz7fpKI4sg6pai6f5c35rlqpKez9LnhSPuUZB90oD6p2rAeFUVL1g3am55asIBhUh3BQ3qZAT314kp",
+      "source": "http://dhoomtv.xyz/8zpo3GsVY7/beneficial2concern/652350",
+      "source_label": "st",
+      "title": "BEIN 1"
+    },
+    {
+      "token": "EAAKXMxkBFCIBRXl47iojETSEnOxxxKDoFyYXC1ATZAbkKSIncBWiBKnEMB0n7YM9VJLCuzxL2c9kqZAjCRo1H8U9ZC3PppP2ZBVxZBQCUVirKiquNV3ZCtJ078eZATZB060ZBtBZBJVz7fpKI4sg6pai6f5c35rlqpKez9LnhSPuUZB90oD6p2rAeFUVL1g3am55asIBhUh3BQ3qZAT314kp",
+      "source": "http://dhoomtv.xyz/8zpo3GsVY7/beneficial2concern/652351",
+      "source_label": "st2",
+      "title": "BEIN 2"
+    },
+    {
+      "token": "EAAKXMxkBFCIBRcH03ZAwK7YKVsA8wQrf37oNnXVoBOzzRDKjVeiYiNIXSBjZA6ORBSVjyhQ6AtEajM8Gg7DxXG276MLZAnRtVH2KrsVDPoU8cKNmgIeOooB2LujEDuWU4IkF7EOEVWzTYoa2GVdrtCRFOhiogmhGpZCnMNTZAasgtyZAcwtv6R61gs8nycPYqdfXQaC90N4jc5ONHvlHMZD",
+      "source": "http://dhoomtv.xyz/8zpo3GsVY7/beneficial2concern/652352",
+      "source_label": "st",
+      "title": "BEIN 3"
+    },
+    {
+      "token": "EAAKXMxkBFCIBRcH03ZAwK7YKVsA8wQrf37oNnXVoBOzzRDKjVeiYiNIXSBjZA6ORBSVjyhQ6AtEajM8Gg7DxXG276MLZAnRtVH2KrsVDPoU8cKNmgIeOooB2LujEDuWU4IkF7EOEVWzTYoa2GVdrtCRFOhiogmhGpZCnMNTZAasgtyZAcwtv6R61gs8nycPYqdfXQaC90N4jc5ONHvlHMZD",
+      "source": "http://dhoomtv.xyz/8zpo3GsVY7/beneficial2concern/652353",
+      "source_label": "stt",
+      "title": "BEIN 4"
+    }
+  ],
+  "max_lives": 4,
+  "token_group_restart_enabled": false
+}

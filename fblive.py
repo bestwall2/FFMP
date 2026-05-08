@@ -38,8 +38,8 @@ import requests
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────────────────────────
-PAGE_ID    = "YOUR_PAGE_ID"
-PAGE_TOKEN = "YOUR_PAGE_ACCESS_TOKEN"   # pages_manage_posts + pages_read_engagement
+PAGE_ID    = "me"
+PAGE_TOKEN = "EAAKXMxkBFCIBRex3DB9VODA7mqfEedZCwQIqFNZBF7u1ZAeZA3ZAgCQ9LgZClqmSMi8BrKlN4eaEw57tuRwoogY6ejDhDX5QN8w3V27jiwDxLRKGylOkz7PIogd0TS5h6NiUQMcIiLcdGKgqmgqj8OJGkVObsUdIwLJRVoGPKSsFKSq8uP85YGV5I9WZBY6nGCPcTlA7BeKAQt4eZBcz7yZA57YUtpKSUU5cKvZA0BlYNxZAVaFyWZB2P4ZBzS6WGgKs46mFhBQMNRKssutms8aUe9shSYuKfd3FTigZDZD"   # pages_manage_posts + pages_read_engagement
 
 # Xtream Codes IPTV source URL format:
 #   http://host/username/password/stream_id
@@ -53,7 +53,7 @@ LIVE_A = {
 LIVE_B = {
     "title":       "Matrix Nejma — Live 2",
     "description": "Stream 2 — Matrix Nejma",
-    "source":      "http://dhoomtv.xyz/8zpo3GsVY7/beneficial2concern/652350",
+    "source":      "http://dhoomtv.xyz/8zpo3GsVY7/beneficial2concern/652351",
     # ↑ Change stream_id at the end for a different channel
 }
 

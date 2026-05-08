@@ -1,0 +1,1772 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Matrix Nejma — Live Manager</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #040810;
+        --bg2: #070d1a;
+        --bg3: #0b1220;
+        --panel: #0d1628;
+        --border: #1a2d4a;
+        --border2: #243d60;
+        --cyan: #00e5ff;
+        --cyan2: #00b8d4;
+        --green: #00e676;
+        --red: #ff1744;
+        --orange: #ff9100;
+        --yellow: #ffd600;
+        --text: #cdd9e8;
+        --text2: #7a9bbf;
+        --text3: #3d5a7a;
+        --glow: 0 0 20px rgba(0, 229, 255, 0.25);
+        --glow2: 0 0 40px rgba(0, 229, 255, 0.15);
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Rajdhani", sans-serif;
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+
+      /* Scanline overlay */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 2px,
+          rgba(0, 0, 0, 0.03) 2px,
+          rgba(0, 0, 0, 0.03) 4px
+        );
+        pointer-events: none;
+        z-index: 9999;
+      }
+
+      /* Dot grid */
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: radial-gradient(
+          circle,
+          rgba(0, 229, 255, 0.04) 1px,
+          transparent 1px
+        );
+        background-size: 28px 28px;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      /* ── Header ── */
+      header {
+        position: relative;
+        z-index: 10;
+        background: linear-gradient(
+          180deg,
+          rgba(0, 229, 255, 0.04) 0%,
+          transparent 100%
+        );
+        border-bottom: 1px solid var(--border2);
+        padding: 18px 32px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .logo {
+        font-family: "Orbitron", monospace;
+        font-size: 1.5rem;
+        font-weight: 900;
+        color: var(--cyan);
+        text-shadow: 0 0 30px rgba(0, 229, 255, 0.6);
+        letter-spacing: 4px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .logo-bracket {
+        color: var(--text3);
+        font-weight: 300;
+      }
+      .live-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: 0 0 10px var(--green);
+        animation: pulse-dot 1.5s ease-in-out infinite;
+      }
+      @keyframes pulse-dot {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.4;
+          transform: scale(0.7);
+        }
+      }
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        font-family: "Share Tech Mono", monospace;
+        font-size: 0.72rem;
+        color: var(--text3);
+      }
+      #global-clock {
+        color: var(--cyan2);
+      }
+
+      /* ── Layout ── */
+      .layout {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: 1fr 380px;
+        gap: 0;
+        min-height: calc(100vh - 66px);
+      }
+
+      /* ── Left: streams panel ── */
+      .streams-panel {
+        padding: 28px 28px 28px 32px;
+        border-right: 1px solid var(--border);
+        overflow-y: auto;
+      }
+
+      .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 20px;
+      }
+      .section-title {
+        font-family: "Orbitron", monospace;
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: var(--text3);
+        letter-spacing: 3px;
+        text-transform: uppercase;
+      }
+      .section-title span {
+        color: var(--cyan);
+      }
+
+      /* ── Stream Card ── */
+      .stream-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        margin-bottom: 16px;
+        overflow: hidden;
+        transition:
+          border-color 0.3s,
+          box-shadow 0.3s;
+        animation: card-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      @keyframes card-in {
+        from {
+          opacity: 0;
+          transform: translateY(-12px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .stream-card:hover {
+        border-color: var(--border2);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+      }
+      .stream-card.warn-token {
+        border-color: rgba(255, 145, 0, 0.5);
+        box-shadow: 0 0 20px rgba(255, 145, 0, 0.1);
+      }
+
+      .card-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        background: rgba(0, 0, 0, 0.25);
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+        user-select: none;
+      }
+      .card-num {
+        font-family: "Orbitron", monospace;
+        font-size: 0.65rem;
+        font-weight: 700;
+        color: var(--text3);
+        background: rgba(0, 229, 255, 0.07);
+        border: 1px solid var(--border2);
+        border-radius: 3px;
+        padding: 2px 7px;
+        min-width: 36px;
+        text-align: center;
+      }
+      .card-title-text {
+        flex: 1;
+        font-weight: 600;
+        font-size: 1rem;
+        color: var(--text);
+        font-family: "Share Tech Mono", monospace;
+      }
+      .card-title-text.placeholder {
+        color: var(--text3);
+        font-style: italic;
+      }
+
+      .status-badge {
+        font-family: "Share Tech Mono", monospace;
+        font-size: 0.62rem;
+        padding: 2px 8px;
+        border-radius: 20px;
+        border: 1px solid;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      .status-badge.idle {
+        color: var(--text3);
+        border-color: var(--text3);
+      }
+      .status-badge.live {
+        color: var(--green);
+        border-color: var(--green);
+        background: rgba(0, 230, 118, 0.1);
+        animation: blink-badge 2s ease-in-out infinite;
+      }
+      .status-badge.starting {
+        color: var(--cyan);
+        border-color: var(--cyan);
+        background: rgba(0, 229, 255, 0.08);
+      }
+      .status-badge.rotating {
+        color: var(--yellow);
+        border-color: var(--yellow);
+        background: rgba(255, 214, 0, 0.08);
+      }
+      .status-badge.error {
+        color: var(--red);
+        border-color: var(--red);
+        background: rgba(255, 23, 68, 0.1);
+      }
+      .status-badge.stopped {
+        color: var(--text3);
+        border-color: var(--text3);
+      }
+      @keyframes blink-badge {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+
+      .card-toggle {
+        color: var(--text3);
+        font-size: 0.8rem;
+        transition: transform 0.25s;
+      }
+      .card-toggle.open {
+        transform: rotate(180deg);
+      }
+
+      .btn-remove-card {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--text3);
+        font-size: 0.85rem;
+        padding: 2px 4px;
+        transition: color 0.2s;
+      }
+      .btn-remove-card:hover {
+        color: var(--red);
+      }
+
+      .card-body {
+        padding: 16px;
+        display: grid;
+        gap: 14px;
+        overflow: hidden;
+        max-height: 600px;
+        transition:
+          max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+          padding 0.35s;
+      }
+      .card-body.collapsed {
+        max-height: 0;
+        padding-top: 0;
+        padding-bottom: 0;
+      }
+
+      /* ── Form elements ── */
+      .field-group {
+        display: grid;
+        gap: 5px;
+      }
+      .field-label {
+        font-family: "Orbitron", monospace;
+        font-size: 0.58rem;
+        font-weight: 700;
+        color: var(--text3);
+        letter-spacing: 2px;
+        text-transform: uppercase;
+      }
+      .field-row {
+        display: flex;
+        gap: 8px;
+        align-items: stretch;
+      }
+
+      input[type="text"],
+      input[type="password"],
+      input[type="url"],
+      select {
+        width: 100%;
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text);
+        font-family: "Share Tech Mono", monospace;
+        font-size: 0.82rem;
+        padding: 8px 12px;
+        outline: none;
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
+        caret-color: var(--cyan);
+      }
+      input[type="text"]:focus,
+      input[type="password"]:focus,
+      input[type="url"]:focus,
+      select:focus {
+        border-color: var(--cyan2);
+        box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.1);
+      }
+      input.valid {
+        border-color: var(--green) !important;
+      }
+      input.invalid {
+        border-color: var(--red) !important;
+      }
+
+      .toggle-pw {
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text3);
+        cursor: pointer;
+        padding: 0 12px;
+        font-size: 0.75rem;
+        transition:
+          color 0.2s,
+          border-color 0.2s;
+        font-family: "Rajdhani", sans-serif;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .toggle-pw:hover {
+        color: var(--cyan);
+        border-color: var(--cyan2);
+      }
+
+      .btn-check {
+        background: rgba(0, 229, 255, 0.08);
+        border: 1px solid var(--cyan2);
+        border-radius: 4px;
+        color: var(--cyan);
+        cursor: pointer;
+        padding: 0 14px;
+        font-family: "Orbitron", monospace;
+        font-size: 0.6rem;
+        font-weight: 700;
+        letter-spacing: 1px;
+        white-space: nowrap;
+        transition:
+          background 0.2s,
+          box-shadow 0.2s;
+      }
+      .btn-check:hover {
+        background: rgba(0, 229, 255, 0.16);
+        box-shadow: 0 0 12px rgba(0, 229, 255, 0.2);
+      }
+
+      .token-info {
+        font-family: "Share Tech Mono", monospace;
+        font-size: 0.7rem;
+        padding: 6px 10px;
+        border-radius: 4px;
+        margin-top: 2px;
+        display: none;
+      }
+      .token-info.show {
+        display: block;
+      }
+      .token-info.ok {
+        background: rgba(0, 230, 118, 0.08);
+        color: var(--green);
+        border: 1px solid rgba(0, 230, 118, 0.2);
+      }
+      .token-info.err {
+        background: rgba(255, 23, 68, 0.08);
+        color: var(--red);
+        border: 1px solid rgba(255, 23, 68, 0.2);
+      }
+
+      /* Token warning */
+      .token-warning {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        background: rgba(255, 145, 0, 0.07);
+        border: 1px solid rgba(255, 145, 0, 0.35);
+        border-radius: 4px;
+        padding: 10px 12px;
+        font-size: 0.82rem;
+        color: var(--orange);
+        display: none;
+        margin-top: 2px;
+      }
+      .token-warning.show {
+        display: flex;
+      }
+      .token-warning strong {
+        font-weight: 700;
+      }
+
+      /* Rotation warning */
+      .rotation-warning {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        background: rgba(255, 214, 0, 0.07);
+        border: 1px solid rgba(255, 214, 0, 0.3);
+        border-radius: 4px;
+        padding: 10px 12px;
+        font-size: 0.82rem;
+        color: var(--yellow);
+        display: none;
+        margin-top: 2px;
+      }
+      .rotation-warning.show {
+        display: flex;
+      }
+
+      /* Sources section */
+      .sources-list {
+        display: grid;
+        gap: 8px;
+      }
+      .source-row {
+        display: grid;
+        grid-template-columns: 1fr 2fr auto;
+        gap: 8px;
+        align-items: center;
+        animation: card-in 0.25s ease both;
+      }
+      .btn-remove-src {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text3);
+        cursor: pointer;
+        padding: 6px 10px;
+        font-size: 0.75rem;
+        transition: all 0.2s;
+      }
+      .btn-remove-src:hover {
+        border-color: var(--red);
+        color: var(--red);
+      }
+
+      .btn-add-src {
+        background: rgba(0, 229, 255, 0.05);
+        border: 1px dashed var(--border2);
+        border-radius: 4px;
+        color: var(--text2);
+        cursor: pointer;
+        padding: 8px;
+        font-family: "Rajdhani", sans-serif;
+        font-size: 0.8rem;
+        font-weight: 600;
+        width: 100%;
+        transition: all 0.2s;
+        margin-top: 4px;
+        letter-spacing: 1px;
+      }
+      .btn-add-src:hover {
+        border-color: var(--cyan2);
+        color: var(--cyan);
+        background: rgba(0, 229, 255, 0.08);
+      }
+
+      /* Progress bar */
+      .progress-wrap {
+        margin-top: 4px;
+      }
+      .progress-label {
+        display: flex;
+        justify-content: space-between;
+        font-family: "Share Tech Mono", monospace;
+        font-size: 0.65rem;
+        color: var(--text3);
+        margin-bottom: 4px;
+      }
+      .progress-bar {
+        height: 3px;
+        background: var(--bg3);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .progress-fill {
+        height: 100%;
+        border-radius: 2px;
+        background: linear-gradient(90deg, var(--cyan), var(--green));
+        transition: width 1s linear;
+        box-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+      }
+
+      /* ── Add stream button ── */
+      .btn-add-stream {
+        width: 100%;
+        padding: 14px;
+        background: transparent;
+        border: 1px dashed var(--border2);
+        border-radius: 6px;
+        cursor: pointer;
+        font-family: "Orbitron", monospace;
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 2px;
+        color: var(--text3);
+        transition: all 0.25s;
+      }
+      .btn-add-stream:hover {
+        border-color: var(--cyan);
+        color: var(--cyan);
+        background: rgba(0, 229, 255, 0.04);
+        box-shadow: 0 0 20px rgba(0, 229, 255, 0.08);
+      }
+
+      /* ── Right panel ── */
+      .right-panel {
+        display: flex;
+        flex-direction: column;
+        background: var(--bg2);
+        overflow: hidden;
+      }
+
+      .control-section {
+        padding: 24px 22px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      /* Action buttons */
+      .btn-main {
+        width: 100%;
+        padding: 14px;
+        border: none;
+        border-radius: 5px;
+        font-family: "Orbitron", monospace;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 2px;
+        cursor: pointer;
+        transition: all 0.25s;
+        position: relative;
+        overflow: hidden;
+      }
+      .btn-main::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          45deg,
+          transparent 30%,
+          rgba(255, 255, 255, 0.05) 50%,
+          transparent 70%
+        );
+        transform: translateX(-100%);
+        transition: transform 0.6s;
+      }
+      .btn-main:hover::before {
+        transform: translateX(100%);
+      }
+
+      .btn-start {
+        background: linear-gradient(135deg, #004d2a, #00301a);
+        color: var(--green);
+        border: 1px solid rgba(0, 230, 118, 0.4);
+        box-shadow: 0 0 20px rgba(0, 230, 118, 0.1);
+        margin-bottom: 10px;
+      }
+      .btn-start:hover {
+        box-shadow: 0 0 30px rgba(0, 230, 118, 0.25);
+        border-color: var(--green);
+      }
+      .btn-stop {
+        background: linear-gradient(135deg, #4d0012, #2d0009);
+        color: var(--red);
+        border: 1px solid rgba(255, 23, 68, 0.4);
+        box-shadow: 0 0 20px rgba(255, 23, 68, 0.1);
+      }
+      .btn-stop:hover {
+        box-shadow: 0 0 30px rgba(255, 23, 68, 0.25);
+        border-color: var(--red);
+      }
+      .btn-main:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        box-shadow: none;
+      }
+
+      /* Stats grid */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 18px;
+      }
+      .stat-box {
+        background: var(--bg3);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 10px 12px;
+      }
+      .stat-label {
+        font-family: "Orbitron", monospace;
+        font-size: 0.55rem;
+        color: var(--text3);
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+      .stat-value {
+        font-family: "Share Tech Mono", monospace;
+        font-size: 1.1rem;
+        color: var(--cyan);
+        font-weight: 400;
+      }
+      .stat-value.green {
+        color: var(--green);
+      }
+      .stat-value.red {
+        color: var(--red);
+      }
+
+      /* ── Log console ── */
+      .log-section {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        padding: 16px 22px 20px;
+        min-height: 0;
+      }
+      .log-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      .log-console {
+        flex: 1;
+        overflow-y: auto;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 10px 12px;
+        font-family: "Share Tech Mono", monospace;
+        font-size: 0.68rem;
+        line-height: 1.7;
+        min-height: 0;
+        max-height: 200px;
+        resize: none;
+      }
+      .log-console::-webkit-scrollbar {
+        width: 6px;
+      }
+      .log-console::-webkit-scrollbar-track {
+        background: var(--bg2);
+        border-radius: 3px;
+      }
+      .log-console::-webkit-scrollbar-thumb {
+        background: var(--text3);
+        border-radius: 3px;
+      }
+      .log-console::-webkit-scrollbar-thumb:hover {
+        background: var(--text2);
+      }
+      .log-console::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .log-console::-webkit-scrollbar-thumb {
+        background: var(--border2);
+        border-radius: 2px;
+      }
+
+      .log-line {
+        display: block;
+      }
+      .log-line.err {
+        color: var(--red);
+      }
+      .log-line.ok {
+        color: var(--green);
+      }
+      .log-line.rot {
+        color: var(--yellow);
+      }
+      .log-line.info {
+        color: var(--cyan2);
+      }
+      .log-line.dim {
+        color: var(--text3);
+      }
+
+      .btn-clear-log {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        color: var(--text3);
+        cursor: pointer;
+        padding: 3px 10px;
+        font-family: "Orbitron", monospace;
+        font-size: 0.55rem;
+        letter-spacing: 1px;
+        transition: all 0.2s;
+      }
+      .btn-clear-log:hover {
+        color: var(--red);
+        border-color: var(--red);
+      }
+
+      /* ── Toast ── */
+      #toast-container {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        z-index: 10000;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .toast {
+        background: var(--panel);
+        border-radius: 5px;
+        padding: 12px 18px;
+        font-family: "Share Tech Mono", monospace;
+        font-size: 0.78rem;
+        min-width: 260px;
+        border-left: 3px solid var(--cyan);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+        animation:
+          toast-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both,
+          toast-out 0.3s 3s forwards;
+        pointer-events: none;
+      }
+      .toast.ok {
+        border-color: var(--green);
+        color: var(--green);
+      }
+      .toast.err {
+        border-color: var(--red);
+        color: var(--red);
+      }
+      .toast.warn {
+        border-color: var(--orange);
+        color: var(--orange);
+      }
+      @keyframes toast-in {
+        from {
+          opacity: 0;
+          transform: translateX(30px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+      @keyframes toast-out {
+        to {
+          opacity: 0;
+          transform: translateX(30px);
+        }
+      }
+
+      /* ── Live stream status rows ── */
+      .live-status-section {
+        padding: 0 28px 0 32px;
+        margin-bottom: 16px;
+      }
+      .live-row {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        display: grid;
+        grid-template-columns: 80px 1fr auto;
+        gap: 12px;
+        align-items: center;
+      }
+      .live-row-label {
+        font-family: "Orbitron", monospace;
+        font-size: 0.65rem;
+        color: var(--cyan);
+        font-weight: 700;
+      }
+      .live-row-info {
+        font-size: 0.78rem;
+        color: var(--text2);
+      }
+      .live-row-info span {
+        color: var(--text);
+      }
+
+      /* Divider */
+      .divider {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 6px 0 20px;
+      }
+
+      /* Scrollbar for main panel */
+      .streams-panel::-webkit-scrollbar {
+        width: 5px;
+      }
+      .streams-panel::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .streams-panel::-webkit-scrollbar-thumb {
+        background: var(--border2);
+        border-radius: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Header -->
+    <header>
+      <div class="logo">
+        <span class="logo-bracket">[</span>MATRIX NEJMA<span
+          class="logo-bracket"
+          >]</span
+        >
+        <div class="live-dot" id="global-dot"></div>
+      </div>
+      <div class="header-right">
+        DUAL LIVE MANAGER &nbsp;|&nbsp;
+        <span id="global-clock">--:--:--</span>
+      </div>
+    </header>
+
+    <!-- Layout -->
+    <div class="layout">
+      <!-- ── Left: streams config + live status ── -->
+      <div class="streams-panel">
+        <!-- Live status rows (populated dynamically) -->
+        <div
+          id="live-status-section"
+          style="display: none; margin-bottom: 20px"
+        >
+          <div class="section-header">
+            <span class="section-title">ACTIVE <span>STREAMS</span></span>
+            <span id="live-count-badge" class="status-badge live">0 LIVE</span>
+          </div>
+          <div id="live-rows"></div>
+          <hr class="divider" />
+        </div>
+
+        <!-- Stream config cards -->
+        <div class="section-header">
+          <span class="section-title">STREAM <span>CONFIGURATION</span></span>
+          <span id="card-count" class="status-badge idle">0 SLOTS</span>
+        </div>
+
+        <div id="cards-container"></div>
+
+        <button class="btn-add-stream" id="btn-add-stream" onclick="addCard()">
+          + ADD STREAM SLOT
+        </button>
+      </div>
+
+      <!-- ── Right: controls + logs ── -->
+      <div class="right-panel">
+        <div class="control-section">
+          <div class="section-title" style="margin-bottom: 16px">
+            CONTROL <span style="color: var(--cyan)">CENTER</span>
+          </div>
+
+          <button
+            class="btn-main btn-start"
+            id="btn-start"
+            onclick="handleStart()"
+          >
+            LAUNCH ALL STREAMS
+          </button>
+          <button
+            class="btn-main btn-stop"
+            id="btn-stop"
+            onclick="handleStop()"
+            disabled
+          >
+            STOP ALL STREAMS
+          </button>
+
+          <div class="stats-grid">
+            <div class="stat-box">
+              <div class="stat-label">Total Slots</div>
+              <div class="stat-value" id="stat-total">0</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Live Now</div>
+              <div class="stat-value green" id="stat-live">0</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Errors</div>
+              <div class="stat-value red" id="stat-errors">0</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Rotations</div>
+              <div class="stat-value" id="stat-rotations">0</div>
+            </div>
+          </div>
+
+          <!-- Settings Section -->
+          <div
+            class="settings-section"
+            style="
+              margin-top: 20px;
+              padding: 15px;
+              border: 1px solid var(--border);
+              border-radius: 5px;
+              background: var(--bg2);
+            "
+          >
+            <div
+              class="section-title"
+              style="margin-bottom: 12px; font-size: 0.9rem"
+            >
+              <span style="color: var(--cyan)">SETTINGS</span>
+            </div>
+
+            <div style="display: flex; align-items: center; margin-bottom: 8px">
+              <input
+                type="checkbox"
+                id="token-group-restart"
+                style="margin-right: 8px"
+              />
+              <label
+                for="token-group-restart"
+                style="font-size: 0.85rem; color: var(--text); cursor: pointer"
+              >
+                Token Group Restart
+              </label>
+            </div>
+
+            <div
+              style="font-size: 0.75rem; color: var(--text2); line-height: 1.4"
+            >
+              When enabled: If a stream crashes due to RTMPS connection issues,
+              all streams using the same Facebook token will be restarted
+              together after 45 seconds. This ensures simultaneous streaming for
+              token-shared live videos. Only affects FFmpeg processes - live
+              videos remain active.
+            </div>
+          </div>
+        </div>
+
+        <!-- Log console -->
+        <div class="log-section">
+          <div class="log-header">
+            <span class="section-title"
+              >SYSTEM <span style="color: var(--cyan)">LOGS</span></span
+            >
+            <button class="btn-clear-log" onclick="clearLogs()">CLEAR</button>
+          </div>
+          <div class="log-console" id="log-console">
+            <span class="log-line dim"
+              >[SYSTEM] Matrix Nejma Live Manager ready.</span
+            >
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast-container"></div>
+
+    <script>
+      // ═══════════════════════════════════════════════════════
+      // State
+      // ═══════════════════════════════════════════════════════
+      let cards = []; // [{id, title, token, pageId, sources:[{label,url}], collapsed, tokenValid}]
+      let cardIdSeq = 0;
+      let isRunning = false;
+      let tokenGroupRestartEnabled = false; // Setting for coordinated token-based restarts
+
+      // ═══════════════════════════════════════════════════════
+      // Clock
+      // ═══════════════════════════════════════════════════════
+      setInterval(() => {
+        document.getElementById("global-clock").textContent = new Date()
+          .toUTCString()
+          .slice(17, 25);
+      }, 1000);
+
+      // ═══════════════════════════════════════════════════════
+      // Load persisted config
+      // ═══════════════════════════════════════════════════════
+      function loadState() {
+        try {
+          const saved = localStorage.getItem("mnjm_cards");
+          if (saved) {
+            cards = JSON.parse(saved).map((c) => ({
+              ...c,
+              sources:
+                Array.isArray(c.sources) && c.sources.length > 0
+                  ? [c.sources[0]]
+                  : [{ label: "", url: "" }],
+            }));
+            cardIdSeq = cards.reduce((m, c) => Math.max(m, c.id), 0) + 1;
+          }
+        } catch (e) {}
+        renderAll();
+
+        // Load settings
+        tokenGroupRestartEnabled =
+          localStorage.getItem("mnjm_token_group_restart") === "true";
+        document.getElementById("token-group-restart").checked =
+          tokenGroupRestartEnabled;
+      }
+
+      function saveState() {
+        cards = cards.map((c) => ({
+          ...c,
+          sources:
+            Array.isArray(c.sources) && c.sources.length > 0
+              ? [c.sources[0]]
+              : [{ label: "", url: "" }],
+        }));
+        localStorage.setItem("mnjm_cards", JSON.stringify(cards));
+        localStorage.setItem(
+          "mnjm_token_group_restart",
+          tokenGroupRestartEnabled.toString(),
+        );
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Cards CRUD
+      // ═══════════════════════════════════════════════════════
+      function addCard() {
+        const id = cardIdSeq++;
+        cards.push({
+          id,
+          title: "",
+          token: "",
+          pageId: null,
+          tokenValid: null,
+          sources: [{ label: "", url: "" }],
+          collapsed: false,
+        });
+        saveState();
+        renderAll();
+        // Scroll to new card
+        setTimeout(() => {
+          const el = document.getElementById("card-" + id);
+          if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 50);
+      }
+
+      function removeCard(id) {
+        cards = cards.filter((c) => c.id !== id);
+        saveState();
+        renderAll();
+      }
+
+      function toggleCard(id) {
+        const c = cards.find((c) => c.id === id);
+        if (c) {
+          c.collapsed = !c.collapsed;
+          renderCard(c);
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Source management
+      // ═══════════════════════════════════════════════════════
+      function addSource(cardId) {
+        // Single-source slots only. No additional source rows are supported.
+      }
+
+      function removeSource(cardId, idx) {
+        // Single-source slots only. Removal is disabled to preserve one source per slot.
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Input handlers (live binding from DOM → state)
+      // ═══════════════════════════════════════════════════════
+      function onTitleChange(cardId, val) {
+        const c = cards.find((c) => c.id === cardId);
+        if (c) {
+          c.title = val;
+          saveState();
+          updateCardHeadTitle(cardId);
+        }
+      }
+
+      function onTokenChange(cardId, val) {
+        const c = cards.find((c) => c.id === cardId);
+        if (c) {
+          c.token = val;
+          c.tokenValid = null;
+          c.pageId = null;
+          saveState();
+          checkTokenWarnings(cardId);
+        }
+      }
+
+      function onSourceLabelChange(cardId, idx, val) {
+        const c = cards.find((c) => c.id === cardId);
+        if (c) {
+          c.sources[idx].label = val;
+          saveState();
+        }
+      }
+
+      function onSourceUrlChange(cardId, idx, val) {
+        const c = cards.find((c) => c.id === cardId);
+        if (c) {
+          c.sources[idx].url = val;
+          saveState();
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Token — same-token count warning
+      // ═══════════════════════════════════════════════════════
+      function countSameToken(token) {
+        if (!token.trim()) return 0;
+        return cards.filter((c) => c.token.trim() === token.trim()).length;
+      }
+
+      function checkTokenWarnings(focusCardId) {
+        cards.forEach((c) => {
+          const el = document.getElementById("card-" + c.id);
+          if (!el) return;
+          const warnEl = el.querySelector(".token-warning");
+          if (!warnEl) return;
+          const count = countSameToken(c.token);
+          if (count >= 3 && c.token.trim()) {
+            warnEl.classList.add("show");
+            el.classList.add("warn-token");
+            const isNewOne = c.id === focusCardId && count > 3;
+            warnEl.querySelector(".warn-text").innerHTML =
+              count > 3
+                ? "<strong>CRITICAL:</strong> This token already has 3 active slots. Adding more will cause Facebook API errors (hard limit: 3 live videos per token)."
+                : "<strong>WARNING:</strong> This token is used across 3 slots — the Facebook maximum. Adding another slot with this token will cause failures.";
+          } else {
+            warnEl.classList.remove("show");
+            el.classList.remove("warn-token");
+          }
+        });
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Token validation
+      // ═══════════════════════════════════════════════════════
+      async function validateToken(cardId) {
+        const c = cards.find((c) => c.id === cardId);
+        if (!c || !c.token.trim()) {
+          toast("Enter a token first", "warn");
+          return;
+        }
+
+        const btn = document.querySelector(`#card-${cardId} .btn-check`);
+        const infoEl = document.getElementById(`token-info-${cardId}`);
+        const tokenInput = document.getElementById(`token-${cardId}`);
+
+        btn.textContent = "...";
+        btn.disabled = true;
+
+        try {
+          const res = await fetch("/api/validate_token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: c.token }),
+          });
+          const data = await res.json();
+
+          if (data.ok) {
+            c.tokenValid = true;
+            c.pageId = data.page_id;
+            saveState();
+            infoEl.className = "token-info show ok";
+            infoEl.textContent = "Page ID: " + data.page_id;
+            tokenInput.classList.add("valid");
+            tokenInput.classList.remove("invalid");
+            toast("Token valid — Page ID: " + data.page_id, "ok");
+          } else {
+            c.tokenValid = false;
+            c.pageId = null;
+            saveState();
+            infoEl.className = "token-info show err";
+            infoEl.textContent = "Error: " + (data.error || "Invalid token");
+            tokenInput.classList.add("invalid");
+            tokenInput.classList.remove("valid");
+            toast("Invalid token: " + data.error, "err");
+          }
+        } catch (e) {
+          infoEl.className = "token-info show err";
+          infoEl.textContent = "Could not reach server.";
+          toast("Server error", "err");
+        }
+
+        btn.textContent = "CHECK";
+        btn.disabled = false;
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Toggle password visibility
+      // ═══════════════════════════════════════════════════════
+      function togglePw(cardId) {
+        const inp = document.getElementById("token-" + cardId);
+        if (!inp) return;
+        const btn = inp.parentElement.querySelector(".toggle-pw");
+        if (inp.type === "password") {
+          inp.type = "text";
+          btn.textContent = "HIDE";
+        } else {
+          inp.type = "password";
+          btn.textContent = "SHOW";
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Render helpers
+      // ═══════════════════════════════════════════════════════
+      function updateCardHeadTitle(cardId) {
+        const c = cards.find((c) => c.id === cardId);
+        const el = document.querySelector(`#card-${cardId} .card-title-text`);
+        if (!el || !c) return;
+        if (c.title.trim()) {
+          el.textContent = c.title.trim();
+          el.classList.remove("placeholder");
+        } else {
+          el.textContent = "Untitled Stream";
+          el.classList.add("placeholder");
+        }
+      }
+
+      function getCardStatus(label) {
+        // Check against last fetched server status
+        const s = lastServerStatus.streams || {};
+        for (const key in s) {
+          if (s[key].label === label) return s[key];
+        }
+        return null;
+      }
+
+      function secs2hms(s) {
+        s = Math.floor(s);
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const sec = s % 60;
+        return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Render single card
+      // ═══════════════════════════════════════════════════════
+      function renderCard(card) {
+        const container = document.getElementById("cards-container");
+        const existing = document.getElementById("card-" + card.id);
+        const html = buildCardHTML(card);
+        if (existing) {
+          // Replace preserving focus
+          const focused = document.activeElement;
+          const focusId = focused ? focused.id : null;
+          const selStart =
+            focused && focused.selectionStart !== undefined
+              ? focused.selectionStart
+              : null;
+          existing.outerHTML = html;
+          if (focusId) {
+            const newFocus = document.getElementById(focusId);
+            if (newFocus) {
+              newFocus.focus();
+              if (selStart !== null && newFocus.setSelectionRange) {
+                try {
+                  newFocus.setSelectionRange(selStart, selStart);
+                } catch (e) {}
+              }
+            }
+          }
+        } else {
+          container.insertAdjacentHTML("beforeend", html);
+        }
+        checkTokenWarnings(card.id);
+      }
+
+      function buildCardHTML(card) {
+        const idx = cards.findIndex((c) => c.id === card.id);
+        const srvStatus = lastServerStatus.streams
+          ? Object.values(lastServerStatus.streams).find(
+              (s) => s.label === `Live-${idx + 1}`,
+            )
+          : null;
+        const statusBadge = srvStatus
+          ? `<span class="status-badge ${srvStatus.status}">${srvStatus.status.toUpperCase()}</span>`
+          : `<span class="status-badge idle">IDLE</span>`;
+
+        const titleDisplay = card.title.trim() || "Untitled Stream";
+        const titleClass = card.title.trim() ? "" : "placeholder";
+
+        const tokenValidClass =
+          card.tokenValid === true
+            ? "valid"
+            : card.tokenValid === false
+              ? "invalid"
+              : "";
+        const tokenInfoShow = card.pageId
+          ? `<div class="token-info show ok" id="token-info-${card.id}">Page ID: ${card.pageId}</div>`
+          : `<div class="token-info" id="token-info-${card.id}"></div>`;
+
+        const warnCount = countSameToken(card.token);
+        const showWarn = warnCount >= 3 && card.token.trim();
+        const warnMsg =
+          warnCount > 3
+            ? "CRITICAL: This token already has 3 active slots. Adding more will cause Facebook API errors (hard limit: 3 live videos per token)."
+            : "WARNING: This token is used across 3 slots — the Facebook maximum. Adding another slot with this token will cause failures.";
+
+        const src = card.sources[0] || { label: "", url: "" };
+        const sourcesHTML = `
+    <div class="source-row">
+      <input type="text" placeholder="Label" value="${escHtml(src.label)}"
+        id="src-label-${card.id}-0"
+        oninput="onSourceLabelChange(${card.id},0,this.value)"/>
+      <input type="url" placeholder="Stream URL (HLS, RTSP, HTTP, or 'test')" value="${escHtml(src.url)}"
+        id="src-url-${card.id}-0"
+        oninput="onSourceUrlChange(${card.id},0,this.value)"/>
+    </div>
+  `;
+
+        const progress = srvStatus
+          ? (() => {
+              const pct = Math.min(100, (srvStatus.elapsed_secs / 14400) * 100);
+              const rem = secs2hms(srvStatus.slot_remaining);
+              return `
+      <div class="progress-wrap">
+        <div class="progress-label">
+          <span>Slot progress</span>
+          <span>${rem} remaining</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:${pct.toFixed(1)}%"></div>
+        </div>
+      </div>`;
+            })()
+          : "";
+
+        const cardWarnClass = showWarn ? "warn-token" : "";
+        const collapseClass = card.collapsed ? "collapsed" : "";
+        const toggleClass = card.collapsed ? "" : "open";
+
+        const rotWarnShow = isRunning && !srvStatus ? "show" : "";
+
+        return `
+<div class="stream-card ${cardWarnClass}" id="card-${card.id}">
+  <div class="card-head" onclick="toggleCard(${card.id})">
+    <span class="card-num">#${String(idx + 1).padStart(2, "0")}</span>
+    <span class="card-title-text ${titleClass}">${escHtml(titleDisplay)}</span>
+    ${statusBadge}
+    <button class="btn-remove-card" title="Remove slot"
+      onclick="event.stopPropagation(); removeCard(${card.id})">X</button>
+    <span class="card-toggle ${toggleClass}">&#9660;</span>
+  </div>
+  <div class="card-body ${collapseClass}">
+
+    <!-- Title -->
+    <div class="field-group">
+      <div class="field-label">Stream Title</div>
+      <input type="text" placeholder="e.g. My Live Channel" value="${escHtml(card.title)}"
+        id="title-${card.id}"
+        oninput="onTitleChange(${card.id},this.value)"/>
+    </div>
+
+    <!-- Token -->
+    <div class="field-group">
+      <div class="field-label">Facebook Access Token</div>
+      <div class="field-row">
+        <input type="password" placeholder="EAAxxxxxxxxxxxxxxxxxxxxxxx" value="${escHtml(card.token)}"
+          id="token-${card.id}" class="${tokenValidClass}"
+          oninput="onTokenChange(${card.id},this.value)"/>
+        <button class="toggle-pw" onclick="togglePw(${card.id})">SHOW</button>
+        <button class="btn-check" onclick="validateToken(${card.id})">CHECK</button>
+      </div>
+      ${tokenInfoShow}
+      <div class="token-warning ${showWarn ? "show" : ""}" style="margin-top:6px;">
+        <span style="font-size:1rem;flex-shrink:0;">!</span>
+        <span class="warn-text">${showWarn ? warnMsg : ""}</span>
+      </div>
+    </div>
+
+    <!-- Source -->
+    <div class="field-group">
+      <div class="field-label">Source</div>
+      <div class="sources-list" id="sources-${card.id}">
+        ${sourcesHTML}
+      </div>
+    </div>
+
+    <!-- Rotation warning (when server is running but this slot hasn't started) -->
+    <div class="rotation-warning ${rotWarnShow}">
+      <span style="font-size:1rem;flex-shrink:0;">~</span>
+      <span>Server is already running. This new slot will NOT start immediately — it will be queued and activated only after the current streams complete their 4-hour rotation. All streams always start at the same time.</span>
+    </div>
+
+    ${progress}
+  </div>
+</div>`;
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Render everything
+      // ═══════════════════════════════════════════════════════
+      function renderAll() {
+        const container = document.getElementById("cards-container");
+        container.innerHTML = "";
+        cards.forEach((c) => {
+          container.insertAdjacentHTML("beforeend", buildCardHTML(c));
+        });
+        updateCounts();
+        checkTokenWarnings(-1);
+      }
+
+      function updateCounts() {
+        const total = cards.length;
+        document.getElementById("card-count").textContent =
+          total + " SLOT" + (total !== 1 ? "S" : "");
+        document.getElementById("stat-total").textContent = total;
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Server status polling
+      // ═══════════════════════════════════════════════════════
+      let lastServerStatus = {};
+      let pollTimer = null;
+
+      async function pollStatus() {
+        try {
+          const res = await fetch("/api/status");
+          const data = await res.json();
+          lastServerStatus = data;
+          updateFromServerStatus(data);
+        } catch (e) {}
+      }
+
+      function updateFromServerStatus(data) {
+        isRunning = data.running;
+
+        // Buttons
+        document.getElementById("btn-start").disabled = isRunning;
+        document.getElementById("btn-stop").disabled = !isRunning;
+
+        // Global dot
+        document.getElementById("global-dot").style.background = isRunning
+          ? "var(--green)"
+          : "var(--text3)";
+        document.getElementById("global-dot").style.boxShadow = isRunning
+          ? "0 0 10px var(--green)"
+          : "none";
+
+        // Stats
+        const streams = Object.values(data.streams || {});
+        const liveCount = streams.filter((s) => s.status === "live").length;
+        const errCount = streams.filter((s) => s.status === "error").length;
+        const rotations = streams.reduce(
+          (sum, s) => sum + (s.rotation_n || 0),
+          0,
+        );
+        document.getElementById("stat-live").textContent = liveCount;
+        document.getElementById("stat-errors").textContent = errCount;
+        document.getElementById("stat-rotations").textContent = rotations;
+
+        // Live count badge
+        document.getElementById("live-count-badge").textContent =
+          liveCount + " LIVE";
+
+        // Active streams section
+        const liveSection = document.getElementById("live-status-section");
+        const liveRows = document.getElementById("live-rows");
+        if (streams.length > 0) {
+          liveSection.style.display = "block";
+          liveRows.innerHTML = streams
+            .map((s) => {
+              const pct = Math.min(100, (s.elapsed_secs / 14400) * 100).toFixed(
+                1,
+              );
+              const rem = secs2hms(s.slot_remaining || 0);
+              return `
+        <div class="live-row">
+          <div>
+            <div class="live-row-label">${escHtml(s.label)}</div>
+            <span class="status-badge ${s.status}" style="margin-top:4px;display:inline-block;">${s.status.toUpperCase()}</span>
+          </div>
+          <div>
+            <div class="live-row-info">Source: <span>${escHtml(s.source_label || s.source || "-")}</span></div>
+            ${s.pending_source ? `<div class="live-row-info" style="color:var(--yellow)">Queued: <span>${escHtml(s.pending_source)}</span></div>` : ""}
+            ${s.error ? `<div class="live-row-info" style="color:var(--red)">Error: <span>${escHtml(s.error)}</span></div>` : ""}
+            <div class="progress-wrap" style="margin-top:6px;">
+              <div class="progress-label">
+                <span>Rotation #${s.rotation_n}</span>
+                <span>${rem} left</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" style="width:${pct}%"></div>
+              </div>
+            </div>
+          </div>
+          <div style="font-family:'Share Tech Mono',monospace;font-size:0.7rem;color:var(--text3);text-align:right;">
+            <div>${secs2hms(s.elapsed_secs || 0)}</div>
+            <div style="font-size:0.6rem;margin-top:2px;">elapsed</div>
+          </div>
+        </div>`;
+            })
+            .join("");
+        } else {
+          liveSection.style.display = "none";
+        }
+
+        // Update logs
+        if (data.logs) {
+          updateLogs(data.logs);
+        }
+
+        // Refresh card status badges
+        cards.forEach((c) => {
+          const badgeEl = document.querySelector(`#card-${c.id} .status-badge`);
+          const idx = cards.findIndex((cc) => cc.id === c.id);
+          const srvS = (data.streams || {})["Live-" + (idx + 1)];
+          if (badgeEl && srvS) {
+            badgeEl.className = `status-badge ${srvS.status}`;
+            badgeEl.textContent = srvS.status.toUpperCase();
+          }
+          // Refresh progress bars
+          if (srvS) {
+            const pctEl = document.querySelector(
+              `#card-${c.id} .progress-fill`,
+            );
+            if (pctEl) {
+              const pct = Math.min(100, (srvS.elapsed_secs / 14400) * 100);
+              pctEl.style.width = pct.toFixed(1) + "%";
+            }
+            const remEl = document.querySelector(
+              `#card-${c.id} .progress-label span:last-child`,
+            );
+            if (remEl)
+              remEl.textContent =
+                secs2hms(srvS.slot_remaining || 0) + " remaining";
+          }
+        });
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Logs
+      // ═══════════════════════════════════════════════════════
+      let lastLogLen = 0;
+      function updateLogs(logs) {
+        if (logs.length === lastLogLen) return;
+        lastLogLen = logs.length;
+        const console_ = document.getElementById("log-console");
+        const wasAtBottom =
+          console_.scrollHeight - console_.clientHeight <=
+          console_.scrollTop + 40;
+        console_.innerHTML = logs
+          .map((line) => {
+            const cls =
+              line.includes("error") ||
+              line.includes("Error") ||
+              line.includes("crash")
+                ? "err"
+                : line.includes("Live created") ||
+                    line.includes("valid") ||
+                    line.includes("Started")
+                  ? "ok"
+                  : line.includes("Rotation") || line.includes("rotating")
+                    ? "rot"
+                    : line.includes("DASH") || line.includes("page_id")
+                      ? "info"
+                      : "dim";
+            return `<span class="log-line ${cls}">${escHtml(line)}</span>`;
+          })
+          .join("\n");
+        if (wasAtBottom) console_.scrollTop = console_.scrollHeight;
+      }
+
+      function clearLogs() {
+        lastLogLen = 0;
+        document.getElementById("log-console").innerHTML =
+          '<span class="log-line dim">[SYSTEM] Logs cleared.</span>';
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Start / Stop
+      // ═══════════════════════════════════════════════════════
+      async function handleStart() {
+        if (cards.length === 0) {
+          toast("Add at least one stream slot first.", "warn");
+          return;
+        }
+
+        // Validate — check for empty tokens
+        const invalid = cards.filter(
+          (c) => !c.token.trim() || c.sources.every((s) => !s.url.trim()),
+        );
+        if (invalid.length > 0) {
+          toast("Some slots are missing token or source URLs.", "err");
+          return;
+        }
+
+        // Check token limits
+        const tokenGroups = {};
+        cards.forEach((c) => {
+          const t = c.token.trim();
+          if (t) tokenGroups[t] = (tokenGroups[t] || 0) + 1;
+        });
+        const overLimit = Object.entries(tokenGroups).filter(([, v]) => v > 3);
+        if (overLimit.length > 0) {
+          toast(
+            "One or more tokens exceed the 3-slot Facebook limit. Fix before starting.",
+            "err",
+          );
+          return;
+        }
+
+        // Build payload with one token/source pair per card.
+        const payload = {
+          cards: cards.map((c, i) => ({
+            token: c.token.trim(),
+            source: c.sources[0]?.url || "",
+            source_label: c.sources[0]?.label || c.title || `Stream ${i + 1}`,
+            title: c.title || c.sources[0]?.label || `Stream ${i + 1}`,
+          })),
+          tokenGroupRestartEnabled: tokenGroupRestartEnabled,
+        };
+
+        document.getElementById("btn-start").disabled = true;
+        document.getElementById("btn-start").textContent = "LAUNCHING...";
+
+        try {
+          const res = await fetch("/api/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          await res.json();
+
+          const res2 = await fetch("/api/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await res2.json();
+
+          if (data.ok) {
+            if (data.queued) {
+              toast(
+                "Sources queued — will apply at next 4h rotation. All streams sync at the same time.",
+                "warn",
+              );
+            } else {
+              toast("All streams launched simultaneously!", "ok");
+            }
+            isRunning = true;
+            document.getElementById("btn-stop").disabled = false;
+          } else {
+            toast("Error: " + (data.error || "Unknown error"), "err");
+            document.getElementById("btn-start").disabled = false;
+          }
+        } catch (e) {
+          toast("Server error: " + e.message, "err");
+          document.getElementById("btn-start").disabled = false;
+        }
+
+        document.getElementById("btn-start").textContent = "LAUNCH ALL STREAMS";
+        pollStatus();
+      }
+
+      async function handleStop() {
+        document.getElementById("btn-stop").disabled = true;
+        document.getElementById("btn-stop").textContent = "STOPPING...";
+
+        try {
+          await fetch("/api/stop", { method: "POST" });
+          toast("All streams stopped.", "ok");
+          isRunning = false;
+          document.getElementById("btn-start").disabled = false;
+        } catch (e) {
+          toast("Error stopping: " + e.message, "err");
+          document.getElementById("btn-stop").disabled = false;
+        }
+
+        document.getElementById("btn-stop").textContent = "STOP ALL STREAMS";
+        pollStatus();
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Toast
+      // ═══════════════════════════════════════════════════════
+      function toast(msg, type) {
+        const c = document.getElementById("toast-container");
+        const div = document.createElement("div");
+        div.className = `toast ${type || ""}`;
+        div.textContent = msg;
+        c.appendChild(div);
+        setTimeout(() => div.remove(), 3500);
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Util
+      // ═══════════════════════════════════════════════════════
+      function escHtml(s) {
+        if (!s) return "";
+        return String(s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // Boot
+      // ═══════════════════════════════════════════════════════
+      loadState();
+      pollStatus();
+      pollTimer = setInterval(pollStatus, 2500);
+    </script>
+  </body>
+</html>
